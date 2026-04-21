@@ -1,0 +1,204 @@
+// Toolia Studio — schema Prisma (MVP iniziale)
+// Entità verranno aggiunte progressivamente seguendo gli step in ../docs/spec/02-flusso-inserimento-dati.md
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// AUTH (NextAuth + credenziali email/password)
+// ============================================================
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  passwordHash  String?
+  role          Role      @default(Editor)
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  accounts      Account[]
+  sessions      Session[]
+
+  @@index([tenantId])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+enum Role {
+  Admin
+  Editor
+  Reviewer
+  ClientViewer
+  ClientEditor
+}
+
+// ============================================================
+// TENANT e PROGETTO
+// ============================================================
+
+model Tenant {
+  id           String    @id @default(cuid())
+  name         String
+  settingsJson Json      @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  users        User[]
+  projects     Project[]
+}
+
+model Project {
+  id           String        @id @default(cuid())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  type         ProjectType   @default(museo)
+  status       ProjectStatus @default(draft)
+  spatialMode  SpatialMode   @default(gps)
+  languages    String[]      @default(["it"])
+  settingsJson Json          @default("{}")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  sources      Source[]
+  interviews   Interview[]
+  kbFacts      KBFact[]
+
+  @@index([tenantId])
+}
+
+enum ProjectType {
+  villa
+  museo
+  cantina
+  citta
+  parco
+  altro
+}
+
+enum ProjectStatus {
+  draft
+  published
+  archived
+}
+
+enum SpatialMode {
+  gps
+  indoor
+  hybrid
+}
+
+// ============================================================
+// STEP 1 — Fonti, Interviste, Knowledge Base
+// ============================================================
+
+model Source {
+  id           String             @id @default(cuid())
+  projectId    String
+  project      Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind         SourceKind
+  title        String
+  rawContent   String             @db.Text
+  importance   SourceImportance   @default(secondaria)
+  reliability  SourceReliability  @default(media)
+  metadataJson Json               @default("{}")
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  kbFacts      KBFact[]
+
+  @@index([projectId])
+}
+
+enum SourceKind {
+  url
+  pdf
+  text
+  wordpress
+}
+
+enum SourceImportance {
+  primaria
+  secondaria
+  contesto
+}
+
+enum SourceReliability {
+  alta
+  media
+  bassa
+}
+
+model Interview {
+  id            String   @id @default(cuid())
+  projectId     String
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title         String
+  questionsJson Json     @default("[]")
+  answersJson   Json     @default("[]")
+  transcript    String   @db.Text
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model KBFact {
+  id         String    @id @default(cuid())
+  projectId  String
+  project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sourceId   String?
+  source     Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
+  kind       FactKind
+  value      String    @db.Text
+  confidence Float     @default(0.5)
+  tags       String[]  @default([])
+  createdAt  DateTime  @default(now())
+
+  @@index([projectId])
+  @@index([sourceId])
+}
+
+enum FactKind {
+  fact
+  interpretation
+  tradition
+  hypothesis
+}
