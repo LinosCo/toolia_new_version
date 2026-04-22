@@ -9,6 +9,7 @@ import {
   MAP_STORE,
   DRIVERS_STORE,
 } from "./idb-store";
+import { loadApiKeys, saveAllApiKeys, type ApiKeysStore } from "./api-keys";
 
 export interface StoredProject {
   id: string;
@@ -1249,9 +1250,10 @@ export interface ProjectBackup {
 }
 
 export interface ToolialBackup {
-  version: 1;
+  version: 2;
   exportedAt: string;
   projects: ProjectBackup[];
+  apiKeys?: ApiKeysStore; // incluse per consentire trasferimento completo tra browser/dispositivi
 }
 
 export async function exportAllProjects(): Promise<ToolialBackup> {
@@ -1276,9 +1278,10 @@ export async function exportAllProjects(): Promise<ToolialBackup> {
     });
   }
   return {
-    version: 1,
+    version: 2,
     exportedAt: new Date().toISOString(),
     projects: backups,
+    apiKeys: loadApiKeys(),
   };
 }
 
@@ -1296,13 +1299,38 @@ export async function importProjects(
   if (!raw || typeof raw !== "object") {
     return { imported: 0, skipped: 0, errors: ["JSON non valido"] };
   }
-  const r = raw as Partial<ToolialBackup>;
-  if (r.version !== 1 || !Array.isArray(r.projects)) {
+  const rAny = raw as {
+    version?: number;
+    projects?: unknown;
+    apiKeys?: unknown;
+  };
+  const ver = rAny.version;
+  if ((ver !== 1 && ver !== 2) || !Array.isArray(rAny.projects)) {
     return {
       imported: 0,
       skipped: 0,
       errors: ["Formato non riconosciuto"],
     };
+  }
+  const r: Partial<ToolialBackup> = {
+    version: 2,
+    exportedAt: "",
+    projects: rAny.projects as ProjectBackup[],
+    apiKeys:
+      rAny.apiKeys && typeof rAny.apiKeys === "object"
+        ? (rAny.apiKeys as ApiKeysStore)
+        : undefined,
+  };
+
+  // Ripristina API keys se presenti (solo backup v2+)
+  if (r.apiKeys && typeof r.apiKeys === "object") {
+    try {
+      saveAllApiKeys(r.apiKeys);
+    } catch (e) {
+      errors.push(
+        `Errore ripristino chiavi API: ${e instanceof Error ? e.message : "unknown"}`,
+      );
+    }
   }
 
   const existing = loadProjects();
@@ -1310,8 +1338,9 @@ export async function importProjects(
 
   let imported = 0;
   let skipped = 0;
+  const projectsList = r.projects ?? [];
 
-  for (const b of r.projects) {
+  for (const b of projectsList) {
     if (!b?.project?.id || !b?.project?.name) {
       skipped++;
       continue;

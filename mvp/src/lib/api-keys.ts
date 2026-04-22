@@ -42,3 +42,11 @@ export function saveServiceKey(service: ServiceKey, value: string) {
   current[service] = value;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(current));
 }
+
+export function saveAllApiKeys(store: ApiKeysStore) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // silent
+  }
+}

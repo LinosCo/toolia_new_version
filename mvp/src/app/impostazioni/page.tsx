@@ -968,8 +968,19 @@ function BackupSection() {
         id="backup"
         kicker="06"
         title="Backup dei progetti"
-        description="Esporta tutti i progetti (Fonti, Brief, Luogo, Driver e Personas) in un file JSON. Importa il file su un altro browser o dispositivo per ritrovare tutto."
+        description="Esporta tutti i progetti (Fonti, Brief, Luogo, Driver e Personas) + le chiavi API in un file JSON. Importa il file su un altro browser o dispositivo per ritrovare tutto."
       />
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
+        <AlertCircle
+          className="h-4 w-4 text-amber-700 shrink-0 mt-0.5"
+          strokeWidth={1.8}
+        />
+        <p className="text-xs text-amber-900 leading-relaxed">
+          <strong>Il file contiene le tue chiavi API</strong> (OpenAI, Google
+          Maps, ElevenLabs). Conservalo in un posto sicuro, non condividerlo
+          pubblicamente e non committarlo su git.
+        </p>
+      </div>
       <Card>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded-xl border border-border/70 bg-card p-5 flex flex-col gap-3">
