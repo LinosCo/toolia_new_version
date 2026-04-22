@@ -1,31 +1,8 @@
-import { NextResponse } from "next/server";
-import { auth } from "@/auth";
+import NextAuth from "next-auth";
+import { authConfig } from "@/auth.config";
 
-const PUBLIC_PATHS = ["/auth/signin", "/auth/verify", "/auth/error"];
-
-export default auth((req) => {
-  const { pathname } = req.nextUrl;
-
-  // Route pubbliche
-  if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) {
-    return NextResponse.next();
-  }
-
-  if (!req.auth) {
-    const signinUrl = new URL("/auth/signin", req.nextUrl.origin);
-    signinUrl.searchParams.set("callbackUrl", pathname);
-    return NextResponse.redirect(signinUrl);
-  }
-
-  return NextResponse.next();
-});
+export default NextAuth(authConfig).auth;
 
 export const config = {
-  matcher: [
-    // Applica middleware a tutte le route TRANNE:
-    // - /api/auth/** (NextAuth endpoints)
-    // - /_next/** (asset Next)
-    // - file statici con estensione
-    "/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\..*).*)",
-  ],
+  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\..*).*)"],
 };

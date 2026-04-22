@@ -3,6 +3,7 @@ import Resend from "next-auth/providers/resend";
 import { PrismaAdapter } from "@auth/prisma-adapter";
 import { prisma } from "@/lib/db";
 import type { Role } from "@/generated/prisma/enums";
+import { authConfig } from "@/auth.config";
 
 declare module "next-auth" {
   interface Session {
@@ -61,6 +62,7 @@ const adapter = {
 };
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   // biome-ignore lint/suspicious/noExplicitAny: adapter custom con shape compatibile
   adapter: adapter as any,
   providers: [
@@ -69,12 +71,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       from: process.env.EMAIL_FROM,
     }),
   ],
-  pages: {
-    signIn: "/auth/signin",
-    verifyRequest: "/auth/verify",
-  },
   session: { strategy: "jwt" },
   callbacks: {
+    ...authConfig.callbacks,
     async jwt({ token, user }) {
       // Primo login (user presente) → salva id, tenantId, role nel JWT
       if (user?.email) {
