@@ -143,7 +143,25 @@ export default function DashboardPage() {
       const raw = localStorage.getItem("toolia-projects");
       if (raw) {
         const parsed: StoredProject[] = JSON.parse(raw);
-        setStoredProjects(hydrateStoredProjects(parsed));
+        const hydrated = hydrateStoredProjects(parsed);
+        setStoredProjects(hydrated);
+        // Calcola completedSteps in async per ogni progetto
+        import("@/lib/project-store").then(({ computeCompletedSteps }) => {
+          Promise.all(
+            hydrated.map(async (p) => ({
+              id: p.id,
+              done: await computeCompletedSteps(p.id),
+            })),
+          ).then((results) => {
+            const doneById = new Map(results.map((r) => [r.id, r.done]));
+            setStoredProjects((prev) =>
+              prev.map((p) => ({
+                ...p,
+                completedSteps: doneById.get(p.id) ?? p.completedSteps,
+              })),
+            );
+          });
+        });
       }
     } catch {
       // ignore

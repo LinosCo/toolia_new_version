@@ -1236,6 +1236,36 @@ export async function saveDriversPersonas(
 }
 
 /* ============================================================== */
+/* ================ COMPLETAMENTO STEP (DASHBOARD) ============== */
+/* ============================================================== */
+
+export async function computeCompletedSteps(
+  projectId: string,
+): Promise<number> {
+  if (typeof window === "undefined") return 0;
+  const [sources, kb, brief, map, drivers] = await Promise.all([
+    loadSources(projectId),
+    loadKB(projectId),
+    loadBrief(projectId),
+    loadMap(projectId),
+    loadDriversPersonas(projectId),
+  ]);
+  let done = 0;
+  const hasSources =
+    (sources?.images?.length ?? 0) > 0 ||
+    (sources?.documents?.length ?? 0) > 0 ||
+    !!sources?.planimetria ||
+    !!sources?.website ||
+    !!sources?.interview;
+  if (hasSources) done++;
+  if ((kb?.facts?.length ?? 0) > 0) done++;
+  if (brief) done++;
+  if ((map?.pois?.length ?? 0) > 0) done++;
+  if (drivers) done++;
+  return done;
+}
+
+/* ============================================================== */
 /* ================ EXPORT / IMPORT PROGETTI ==================== */
 /* ============================================================== */
 
