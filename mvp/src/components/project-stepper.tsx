@@ -29,7 +29,13 @@ export const PROJECT_STEPS: StepDef[] = [
     slug: "luogo",
     label: "Luogo",
     kicker: "03",
-    description: "Mappa GPS dei POI + zone narrative",
+    description: "POI e zone dalle fonti incrociate",
+  },
+  {
+    slug: "driver",
+    label: "Driver e Personas",
+    kicker: "04",
+    description: "Motore editoriale: driver, personas, lenti, regole",
   },
 ];
 

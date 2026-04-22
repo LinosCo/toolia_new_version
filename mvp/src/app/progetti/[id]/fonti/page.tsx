@@ -36,7 +36,8 @@ import {
   saveKB,
   ProjectSources,
   UploadedDocument,
-  PlanimetriaPoi,
+  PlanimetriaSource,
+  SpatialHint,
   Importance,
   Reliability,
   WebsiteSource,
@@ -45,6 +46,7 @@ import {
   InterviewMode,
   RespondentRole,
   kbFactsBySourceLabel,
+  sourcesSignature,
   KBFact,
   KBCategory,
   KBSourceKind,
@@ -219,29 +221,13 @@ export default function FontiStepPage({
             <Shell
               key="0"
               kicker="Passo 1 di 5"
-              subtitle="Pianta o mappa del luogo. Serve all'AI per estrarre i punti di interesse numerati."
+              subtitle="Pianta o mappa del luogo. L'AI estrae una descrizione ricca e gli spunti spaziali — i punti di interesse veri si costruiscono dopo, incrociando tutte le fonti."
             >
               <PlanimetriaUploader
                 value={sources.planimetria}
-                poi={sources.planimetriaPoi}
                 onChange={(planimetria) =>
                   setSources((prev) => {
-                    const next: ProjectSources = {
-                      ...prev,
-                      planimetria: planimetria ?? undefined,
-                      planimetriaPoi: planimetria
-                        ? prev.planimetriaPoi
-                        : undefined,
-                    };
-                    saveSources(projectId, next).then((result) => {
-                      setQuotaError(!result.ok && result.reason === "quota");
-                    });
-                    return next;
-                  })
-                }
-                onPoiChange={(planimetriaPoi) =>
-                  setSources((prev) => {
-                    const next: ProjectSources = { ...prev, planimetriaPoi };
+                    const next: ProjectSources = { ...prev, planimetria };
                     saveSources(projectId, next).then((result) => {
                       setQuotaError(!result.ok && result.reason === "quota");
                     });
@@ -371,7 +357,7 @@ export default function FontiStepPage({
 function isSubFilled(s: ProjectSources, kb: ProjectKB, i: number): boolean {
   switch (i) {
     case 0:
-      return !!s.planimetria;
+      return !!s.planimetria?.image;
     case 1:
       return !!s.website?.text && s.website.text.length > 30;
     case 2:
@@ -427,23 +413,25 @@ function Shell({
 
 function PlanimetriaUploader({
   value,
-  poi,
   onChange,
-  onPoiChange,
 }: {
-  value?: string;
-  poi?: PlanimetriaPoi[];
-  onChange: (v: string | null) => void;
-  onPoiChange: (p: PlanimetriaPoi[] | undefined) => void;
+  value?: PlanimetriaSource;
+  onChange: (v: PlanimetriaSource | undefined) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [newHint, setNewHint] = useState("");
 
   const hasOpenAiKey =
     typeof window !== "undefined" && loadApiKeys().llm.openai.length > 0;
+
+  const patch = (changes: Partial<PlanimetriaSource>) => {
+    if (!value) return;
+    onChange({ ...value, ...changes });
+  };
 
   const handleFile = async (f: File) => {
     if (!f.type.startsWith("image/")) return;
@@ -455,14 +443,21 @@ function PlanimetriaUploader({
         reader.onerror = reject;
         reader.readAsDataURL(f);
       });
-      onChange(dataUrl);
+      onChange({
+        image: dataUrl,
+        description: value?.description ?? "",
+        spatialHints: value?.spatialHints ?? [],
+        importance: value?.importance ?? "primaria",
+        reliability: value?.reliability ?? "alta",
+        analyzedAt: undefined,
+      });
     } finally {
       setBusy(false);
     }
   };
 
   const analyze = async () => {
-    if (!value) return;
+    if (!value?.image) return;
     setAnalyzing(true);
     setAiError(null);
     try {
@@ -470,20 +465,45 @@ function PlanimetriaUploader({
       const res = await fetch("/api/ai/analyze-planimetria", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageDataUrl: value, apiKey }),
+        body: JSON.stringify({ imageDataUrl: value.image, apiKey }),
       });
       const data = await res.json();
       if (!res.ok) {
         setAiError(data.message || "Errore durante l'analisi.");
         return;
       }
-      if (!Array.isArray(data.points) || data.points.length === 0) {
+      const description =
+        typeof data.description === "string" ? data.description : "";
+      const spatialHints: SpatialHint[] = Array.isArray(data.spatialHints)
+        ? data.spatialHints
+            .map((h: unknown): SpatialHint | null => {
+              if (typeof h === "string") {
+                const name = h.trim();
+                return name ? { name, description: "" } : null;
+              }
+              if (h && typeof h === "object") {
+                const o = h as { name?: unknown; description?: unknown };
+                const name = typeof o.name === "string" ? o.name.trim() : "";
+                if (!name) return null;
+                const desc =
+                  typeof o.description === "string" ? o.description.trim() : "";
+                return { name, description: desc };
+              }
+              return null;
+            })
+            .filter((h: SpatialHint | null): h is SpatialHint => h !== null)
+        : [];
+      if (!description && spatialHints.length === 0) {
         setAiError(
-          "Nessun punto identificato. Prova con un'immagine più chiara.",
+          "L'AI non ha letto nulla dalla planimetria. Prova un'immagine più nitida.",
         );
         return;
       }
-      onPoiChange(data.points);
+      patch({
+        description,
+        spatialHints,
+        analyzedAt: new Date().toISOString(),
+      });
     } catch {
       setAiError("Errore di rete.");
     } finally {
@@ -491,180 +511,264 @@ function PlanimetriaUploader({
     }
   };
 
-  const updatePoi = (
-    idx: number,
-    field: keyof PlanimetriaPoi,
-    val: string | number,
-  ) => {
-    if (!poi) return;
-    const next = poi.map((p, i) => (i === idx ? { ...p, [field]: val } : p));
-    onPoiChange(next);
+  const addHint = () => {
+    const v = newHint.trim();
+    if (!v || !value) return;
+    if (
+      value.spatialHints.some((h) => h.name.toLowerCase() === v.toLowerCase())
+    ) {
+      setNewHint("");
+      return;
+    }
+    patch({
+      spatialHints: [...value.spatialHints, { name: v, description: "" }],
+    });
+    setNewHint("");
   };
 
-  const removePoi = (idx: number) => {
-    if (!poi) return;
-    onPoiChange(poi.filter((_, i) => i !== idx));
+  const removeHint = (idx: number) => {
+    if (!value) return;
+    patch({
+      spatialHints: value.spatialHints.filter((_, i) => i !== idx),
+    });
   };
 
-  const imgWrapperRef = useRef<HTMLDivElement>(null);
-  const [draggingN, setDraggingN] = useState<number | null>(null);
-
-  const startDrag = (n: number, e: React.PointerEvent<HTMLButtonElement>) => {
-    e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    setDraggingN(n);
+  const updateHint = (idx: number, patchHint: Partial<SpatialHint>) => {
+    if (!value) return;
+    patch({
+      spatialHints: value.spatialHints.map((h, i) =>
+        i === idx ? { ...h, ...patchHint } : h,
+      ),
+    });
   };
 
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (draggingN === null || !poi || !imgWrapperRef.current) return;
-    const rect = imgWrapperRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    const next = poi.map((p) => (p.n === draggingN ? { ...p, x, y } : p));
-    onPoiChange(next);
-  };
-
-  const endDrag = () => setDraggingN(null);
+  const wordsDescription = value?.description
+    ? value.description.split(/\s+/).filter(Boolean).length
+    : 0;
 
   return (
     <div>
-      {value ? (
-        <div className="relative rounded-2xl border border-border bg-card overflow-hidden">
-          <div className="p-4 bg-muted/40 border-b border-border/60 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <div className="h-1.5 w-1.5 rounded-full bg-brand" />
-              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
-                Planimetria caricata
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-foreground text-background text-xs font-medium hover:bg-foreground/90 transition-colors"
-              >
-                <Replace className="h-3 w-3" strokeWidth={1.8} />
-                Cambia
-              </button>
-              <button
-                type="button"
-                onClick={() => onChange(null)}
-                className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-muted text-destructive hover:bg-destructive hover:text-white transition-colors"
-                aria-label="Rimuovi"
-              >
-                <Trash2 className="h-3 w-3" strokeWidth={1.8} />
-              </button>
-            </div>
-          </div>
-          <div className="relative bg-[#F5F1EA] flex items-center justify-center min-h-[280px] p-4 select-none">
-            <div
-              ref={imgWrapperRef}
-              className="relative inline-block"
-              onPointerMove={onPointerMove}
-              onPointerUp={endDrag}
-              onPointerCancel={endDrag}
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={value}
-                alt="Planimetria"
-                draggable={false}
-                className="max-h-[480px] max-w-full object-contain block pointer-events-none"
-              />
-              {poi?.map((p) => (
-                <button
-                  type="button"
-                  key={p.n}
-                  onPointerDown={(e) => startDrag(p.n, e)}
-                  aria-label={`Sposta punto ${p.n} ${p.name}`}
-                  className={cn(
-                    "absolute -translate-x-1/2 -translate-y-1/2 h-7 w-7 rounded-full bg-brand text-white text-[11px] font-bold flex items-center justify-center shadow-[0_2px_6px_rgba(0,0,0,0.3)] ring-2 ring-white transition-transform",
-                    draggingN === p.n
-                      ? "cursor-grabbing scale-125 ring-4"
-                      : "cursor-grab hover:scale-110",
-                  )}
-                  style={{
-                    left: `${p.x * 100}%`,
-                    top: `${p.y * 100}%`,
-                    touchAction: "none",
-                  }}
-                >
-                  {p.n}
-                </button>
-              ))}
-            </div>
-          </div>
-          {poi && poi.length > 0 && (
-            <div className="px-4 pb-2 bg-card -mt-px">
-              <p className="text-[11px] text-muted-foreground">
-                Trascina i pin sulla mappa per correggere la posizione.
-              </p>
-            </div>
-          )}
-          <div className="p-4 border-t border-border/60 flex items-center justify-between gap-4 bg-card">
-            <div className="flex items-start gap-3 min-w-0">
-              <Sparkles
-                className="h-4 w-4 text-brand shrink-0 mt-0.5"
-                strokeWidth={1.8}
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">Analisi automatica</p>
-                <p className="text-xs text-muted-foreground">
-                  {poi?.length
-                    ? `${poi.length} punti identificati`
-                    : hasOpenAiKey
-                      ? "L'AI legge la planimetria, trova i pin numerati e le descrizioni."
-                      : "Configura la chiave OpenAI in Impostazioni per usare l'AI."}
+      {value?.image ? (
+        <div className="space-y-5">
+          <div className="relative rounded-2xl border border-border bg-card overflow-hidden">
+            <div className="p-4 bg-muted/40 border-b border-border/60 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 w-1.5 rounded-full bg-brand" />
+                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+                  Planimetria caricata
                 </p>
               </div>
-            </div>
-            <button
-              type="button"
-              onClick={analyze}
-              disabled={!hasOpenAiKey || analyzing}
-              className={cn(
-                "shrink-0 inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-xs font-medium transition-colors",
-                !hasOpenAiKey
-                  ? "bg-muted text-muted-foreground cursor-not-allowed"
-                  : analyzing
-                    ? "bg-muted text-muted-foreground cursor-wait"
-                    : poi?.length
-                      ? "border border-border text-foreground hover:bg-muted"
-                      : "bg-foreground text-background hover:bg-foreground/90",
-              )}
-            >
-              {analyzing ? (
-                <>
-                  <Loader2
-                    className="h-3.5 w-3.5 animate-spin"
-                    strokeWidth={1.8}
-                  />
-                  Analizzo…
-                </>
-              ) : poi?.length ? (
-                <>
-                  <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  Rianalizza
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
-                  Analizza con AI
-                </>
-              )}
-            </button>
-          </div>
-          {aiError && (
-            <div className="px-4 pb-4 bg-card">
-              <div className="rounded-xl border border-destructive/30 bg-destructive/[0.03] p-3 flex items-start gap-2">
-                <AlertCircle
-                  className="h-4 w-4 text-destructive shrink-0 mt-0.5"
-                  strokeWidth={1.8}
-                />
-                <p className="text-xs text-muted-foreground">{aiError}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-foreground text-background text-xs font-medium hover:bg-foreground/90 transition-colors"
+                >
+                  <Replace className="h-3 w-3" strokeWidth={1.8} />
+                  Cambia
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange(undefined)}
+                  className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-muted text-destructive hover:bg-destructive hover:text-white transition-colors"
+                  aria-label="Rimuovi"
+                >
+                  <Trash2 className="h-3 w-3" strokeWidth={1.8} />
+                </button>
               </div>
             </div>
-          )}
+            <div className="bg-[#F5F1EA] flex items-center justify-center min-h-[280px] p-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={value.image}
+                alt="Planimetria"
+                className="max-h-[480px] max-w-full object-contain block"
+              />
+            </div>
+            <div className="p-4 border-t border-border/60 flex items-center justify-between gap-4 bg-card">
+              <div className="flex items-start gap-3 min-w-0">
+                <Sparkles
+                  className="h-4 w-4 text-brand shrink-0 mt-0.5"
+                  strokeWidth={1.8}
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {value.analyzedAt
+                      ? "Descrizione estratta"
+                      : "Analisi automatica"}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    {value.analyzedAt
+                      ? `${wordsDescription} parole · ${value.spatialHints.length} spunti osservati`
+                      : hasOpenAiKey
+                        ? "L'AI legge la planimetria e produce una descrizione testuale dettagliata + elenco di ambienti osservati."
+                        : "Configura la chiave OpenAI in Impostazioni per usare l'AI."}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={analyze}
+                disabled={!hasOpenAiKey || analyzing}
+                className={cn(
+                  "shrink-0 inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-xs font-medium transition-colors",
+                  !hasOpenAiKey
+                    ? "bg-muted text-muted-foreground cursor-not-allowed"
+                    : analyzing
+                      ? "bg-muted text-muted-foreground cursor-wait"
+                      : value.analyzedAt
+                        ? "border border-border text-foreground hover:bg-muted"
+                        : "bg-foreground text-background hover:bg-foreground/90",
+                )}
+              >
+                {analyzing ? (
+                  <>
+                    <Loader2
+                      className="h-3.5 w-3.5 animate-spin"
+                      strokeWidth={1.8}
+                    />
+                    Analizzo…
+                  </>
+                ) : value.analyzedAt ? (
+                  <>
+                    <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.8} />
+                    Rianalizza
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+                    Analizza con AI
+                  </>
+                )}
+              </button>
+            </div>
+            {aiError && (
+              <div className="px-4 pb-4 bg-card">
+                <div className="rounded-xl border border-destructive/30 bg-destructive/[0.03] p-3 flex items-start gap-2">
+                  <AlertCircle
+                    className="h-4 w-4 text-destructive shrink-0 mt-0.5"
+                    strokeWidth={1.8}
+                  />
+                  <p className="text-xs text-muted-foreground">{aiError}</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Tag importanza/affidabilità */}
+          <SourceTaggingRow
+            importance={value.importance}
+            reliability={value.reliability}
+            onImportance={(importance) => patch({ importance })}
+            onReliability={(reliability) => patch({ reliability })}
+          />
+
+          {/* Descrizione editabile */}
+          <div className="rounded-2xl border border-border bg-card">
+            <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
+              <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+                Descrizione
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                {wordsDescription} parole
+              </p>
+            </div>
+            <textarea
+              value={value.description}
+              onChange={(e) => patch({ description: e.target.value })}
+              placeholder="La descrizione ricca della planimetria comparirà qui dopo l'analisi AI. Puoi editarla liberamente."
+              rows={8}
+              className="w-full px-4 py-3 text-sm text-foreground bg-transparent resize-y focus:outline-none"
+            />
+          </div>
+
+          {/* Spunti spaziali — nome + descrizione (no coords) */}
+          <div className="rounded-2xl border border-border bg-card">
+            <div className="px-4 py-3 border-b border-border/60">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+                  Spunti osservati · {value.spatialHints.length}
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Nome e descrizione di ciò che l&apos;AI ha letto accanto a ogni
+                punto del disegno. Non sono punti di interesse definitivi:
+                serviranno nello step Luogo, incrociati con il resto delle
+                fonti.
+              </p>
+            </div>
+            <div className="p-4 space-y-3">
+              {value.spatialHints.length > 0 && (
+                <ul className="space-y-2">
+                  {value.spatialHints.map((h, idx) => (
+                    <li
+                      key={idx}
+                      className="rounded-xl border border-border bg-muted/30 p-3 flex items-start gap-3"
+                    >
+                      <span className="shrink-0 h-6 w-6 rounded-full bg-violet-500/15 text-violet-700 text-[11px] font-bold flex items-center justify-center tabular-nums mt-0.5">
+                        {idx + 1}
+                      </span>
+                      <div className="flex-1 min-w-0 space-y-1.5">
+                        <Input
+                          value={h.name}
+                          onChange={(e) =>
+                            updateHint(idx, { name: e.target.value })
+                          }
+                          placeholder="Nome dello spunto"
+                          className="h-8 text-sm font-medium bg-card"
+                        />
+                        <textarea
+                          value={h.description}
+                          onChange={(e) =>
+                            updateHint(idx, { description: e.target.value })
+                          }
+                          placeholder="Descrizione letta accanto al punto (opzionale)"
+                          rows={2}
+                          className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeHint(idx)}
+                        className="shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        aria-label={`Rimuovi ${h.name}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <div className="flex items-center gap-2">
+                <Input
+                  value={newHint}
+                  onChange={(e) => setNewHint(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addHint();
+                    }
+                  }}
+                  placeholder="Aggiungi uno spunto (es. Sala delle Armi)"
+                  className="h-9 text-sm"
+                />
+                <button
+                  type="button"
+                  onClick={addHint}
+                  disabled={!newHint.trim()}
+                  className={cn(
+                    "shrink-0 inline-flex items-center gap-1 h-9 px-3 rounded-full text-xs font-medium transition-colors",
+                    newHint.trim()
+                      ? "bg-foreground text-background hover:bg-foreground/90"
+                      : "bg-muted text-muted-foreground cursor-not-allowed",
+                  )}
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
+                  Aggiungi
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <button
@@ -721,69 +825,70 @@ function PlanimetriaUploader({
         }}
       />
       <p className="mt-3 text-xs text-muted-foreground">
-        Opzionale. Se il sito è all&apos;aperto puoi saltare — useremo la mappa
-        GPS nello step Luogo.
+        Opzionale. Se il sito è all&apos;aperto puoi saltare: la planimetria
+        aiuta ma non è obbligatoria.
       </p>
+    </div>
+  );
+}
 
-      {poi && poi.length > 0 && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
-              Punti identificati · {poi.length}
-            </p>
+function SourceTaggingRow({
+  importance,
+  reliability,
+  onImportance,
+  onReliability,
+}: {
+  importance: Importance;
+  reliability: Reliability;
+  onImportance: (v: Importance) => void;
+  onReliability: (v: Reliability) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium mb-2">
+          Importanza
+        </p>
+        <div className="flex gap-2">
+          {IMPORTANCE_OPTIONS.map((o) => (
             <button
+              key={o.value}
               type="button"
-              onClick={() => onPoiChange(undefined)}
-              className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+              onClick={() => onImportance(o.value)}
+              className={cn(
+                "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                importance === o.value
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40",
+              )}
             >
-              Azzera tutti
+              {o.label}
             </button>
-          </div>
-          <ul className="space-y-2">
-            {poi
-              .slice()
-              .sort((a, b) => a.n - b.n)
-              .map((p, i) => {
-                const idx = poi.indexOf(p);
-                return (
-                  <li
-                    key={p.n + "-" + i}
-                    className="rounded-xl border border-border bg-card p-4 flex items-start gap-3"
-                  >
-                    <span className="shrink-0 h-7 w-7 rounded-full bg-brand text-white text-xs font-bold flex items-center justify-center">
-                      {p.n}
-                    </span>
-                    <div className="flex-1 min-w-0 space-y-2">
-                      <Input
-                        value={p.name}
-                        onChange={(e) => updatePoi(idx, "name", e.target.value)}
-                        placeholder="Nome del punto"
-                        className="h-9 text-sm font-medium"
-                      />
-                      <textarea
-                        value={p.description}
-                        onChange={(e) =>
-                          updatePoi(idx, "description", e.target.value)
-                        }
-                        placeholder="Descrizione"
-                        rows={2}
-                        className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs text-foreground resize-none focus:outline-none focus:ring-1 focus:ring-foreground/30"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removePoi(idx)}
-                      className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      aria-label="Rimuovi punto"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    </button>
-                  </li>
-                );
-              })}
-          </ul>
+          ))}
         </div>
-      )}
+      </div>
+      <div>
+        <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium mb-2">
+          Affidabilità
+        </p>
+        <div className="flex gap-2">
+          {RELIABILITY_OPTIONS.map((o) => (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onReliability(o.value)}
+              className={cn(
+                "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                reliability === o.value
+                  ? "border-foreground bg-foreground text-background"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40",
+              )}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1379,7 +1484,8 @@ function InterviewSection({
           respondentRole: interview.respondent.role,
           websiteText: sources.website?.text?.slice(0, 3000),
           documentsText: documentsText.slice(0, 6000),
-          poi: sources.planimetriaPoi,
+          planimetriaDescription: sources.planimetria?.description,
+          spatialHints: sources.planimetria?.spatialHints.map((h) => h.name),
         }),
       });
       const data = await res.json();
@@ -1818,6 +1924,9 @@ function Recap({
   kb: ProjectKB;
   projectId: string;
 }) {
+  const planimetriaWords = sources.planimetria?.description
+    ? sources.planimetria.description.split(/\s+/).filter(Boolean).length
+    : 0;
   const siteWords = sources.website?.text
     ? sources.website.text.split(/\s+/).filter(Boolean).length
     : 0;
@@ -1833,36 +1942,35 @@ function Recap({
           (acc, q) => acc + q.answer.split(/\s+/).filter(Boolean).length,
           0,
         ) ?? 0);
-  const totalWords = siteWords + docsWords + interviewWords;
+  const totalWords = planimetriaWords + siteWords + docsWords + interviewWords;
 
   const primariaCount =
+    (sources.planimetria?.importance === "primaria" ? 1 : 0) +
     (sources.website?.importance === "primaria" ? 1 : 0) +
     sources.documents.filter((d) => d.importance === "primaria").length +
     (sources.interview?.importance === "primaria" ? 1 : 0);
 
-  // POI coverage
   const approvedFacts = kb.facts.filter((f) => f.approved);
-  const planPois = sources.planimetriaPoi ?? [];
-  const factsPerPoi = new Map<number, number>();
-  approvedFacts.forEach((f) => {
-    if (typeof f.poiRef === "number") {
-      factsPerPoi.set(f.poiRef, (factsPerPoi.get(f.poiRef) ?? 0) + 1);
-    }
-  });
-  const poisCovered = planPois.filter((p) => (factsPerPoi.get(p.n) ?? 0) > 0);
-  const poisUncovered = planPois.filter(
-    (p) => (factsPerPoi.get(p.n) ?? 0) === 0,
-  );
-  const coveragePct =
-    planPois.length > 0
-      ? Math.round((poisCovered.length / planPois.length) * 100)
-      : 0;
+  const spatialHints = sources.planimetria?.spatialHints ?? [];
 
-  // Salute materiale: verde (rich), giallo (minimum), rosso (scarso)
+  // Diversità fonti caricate (max 4: planimetria, sito, documenti, intervista)
+  const sourcesLoaded =
+    (sources.planimetria?.image ? 1 : 0) +
+    (sources.website?.text && sources.website.text.length > 30 ? 1 : 0) +
+    (sources.documents.length > 0 ? 1 : 0) +
+    (sources.interview &&
+    ((sources.interview.mode === "qa" &&
+      sources.interview.qa.some((q) => q.answer.trim())) ||
+      (sources.interview.mode === "trascrizione" &&
+        (sources.interview.transcriptText?.length ?? 0) > 100))
+      ? 1
+      : 0);
+
+  // Salute materiale: rich / minimum / scarce
   const healthLevel: "rich" | "minimum" | "scarce" =
-    totalWords > 10000 && approvedFacts.length >= 40 && coveragePct >= 70
+    totalWords > 10000 && approvedFacts.length >= 40 && sourcesLoaded >= 3
       ? "rich"
-      : totalWords > 3000 && approvedFacts.length >= 15
+      : totalWords > 3000 && approvedFacts.length >= 15 && sourcesLoaded >= 2
         ? "minimum"
         : "scarce";
   const healthLabel = {
@@ -1880,22 +1988,32 @@ function Recap({
   const mix =
     totalWords > 0
       ? {
+          planimetria: Math.round((planimetriaWords / totalWords) * 100),
           sito: Math.round((siteWords / totalWords) * 100),
           documenti: Math.round((docsWords / totalWords) * 100),
           intervista: Math.round((interviewWords / totalWords) * 100),
         }
-      : { sito: 0, documenti: 0, intervista: 0 };
+      : { planimetria: 0, sito: 0, documenti: 0, intervista: 0 };
 
   return (
     <div className="space-y-4">
       <div className="rounded-2xl border border-border bg-card p-6 space-y-5">
         <RecapRow label="Planimetria">
-          <span className="text-sm">
-            {sources.planimetria ? (
-              <span className="inline-flex items-center gap-1.5 text-brand">
-                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
-                Caricata · {sources.planimetriaPoi?.length ?? 0} POI
-              </span>
+          <span className="text-sm text-right">
+            {sources.planimetria?.image ? (
+              <>
+                <span className="font-medium inline-flex items-center gap-1.5 text-brand">
+                  <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                  Caricata
+                </span>
+                <br />
+                <span className="text-xs text-muted-foreground">
+                  {sources.planimetria.importance} ·{" "}
+                  {sources.planimetria.reliability}
+                  {sources.planimetria.analyzedAt &&
+                    ` · ${planimetriaWords} parole · ${spatialHints.length} spunti`}
+                </span>
+              </>
             ) : (
               <span className="text-muted-foreground">Non caricata</span>
             )}
@@ -2013,22 +2131,18 @@ function Recap({
             {primariaCount}
           </p>
         </div>
-        {planPois.length > 0 && (
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
-              Coverage POI
-            </p>
-            <p className="font-heading text-3xl italic tabular-nums mt-1">
-              {coveragePct}
-              <span className="text-sm text-muted-foreground not-italic">
-                %
-              </span>
-            </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              {poisCovered.length}/{planPois.length} POI con fatti
-            </p>
-          </div>
-        )}
+        <div className="rounded-2xl border border-border bg-card p-5">
+          <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
+            Diversità fonti
+          </p>
+          <p className="font-heading text-3xl italic tabular-nums mt-1">
+            {sourcesLoaded}
+            <span className="text-sm text-muted-foreground not-italic">/4</span>
+          </p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            planimetria · sito · docs · intervista
+          </p>
+        </div>
       </div>
 
       {/* Mix fonti */}
@@ -2038,6 +2152,11 @@ function Recap({
             Mix fonti (per volume di testo)
           </p>
           <div className="h-2.5 rounded-full overflow-hidden flex bg-muted">
+            <div
+              className="bg-violet-500"
+              style={{ width: `${mix.planimetria}%` }}
+              title={`Planimetria ${mix.planimetria}%`}
+            />
             <div
               className="bg-sky-500"
               style={{ width: `${mix.sito}%` }}
@@ -2054,7 +2173,11 @@ function Recap({
               title={`Intervista ${mix.intervista}%`}
             />
           </div>
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground mt-2">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-muted-foreground mt-2">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 rounded-full bg-violet-500" />
+              Planimetria {mix.planimetria}%
+            </span>
             <span className="inline-flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-sky-500" />
               Sito {mix.sito}%
@@ -2071,32 +2194,40 @@ function Recap({
         </div>
       )}
 
-      {/* POI sottorappresentati */}
-      {poisUncovered.length > 0 && (
-        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-5">
+      {/* Spunti spaziali per Step Luogo */}
+      {spatialHints.length > 0 && (
+        <div className="rounded-2xl border border-violet-300 bg-violet-50 p-5">
           <div className="flex items-start gap-3">
-            <AlertCircle
-              className="h-4 w-4 text-amber-700 shrink-0 mt-0.5"
+            <Sparkles
+              className="h-4 w-4 text-violet-700 shrink-0 mt-0.5"
               strokeWidth={1.8}
             />
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-amber-900">
-                {poisUncovered.length} POI senza fatti approvati
+              <p className="text-sm font-medium text-violet-900">
+                {spatialHints.length} spunti dalla planimetria
               </p>
-              <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
-                Le schede di questi POI saranno generiche. Torna alla Knowledge
-                Base per approvare più fatti, o aggiungi fonti specifiche.
+              <p className="text-xs text-violet-900/80 mt-1 leading-relaxed">
+                Nomi di ambienti osservati sul disegno. Diventeranno punti di
+                interesse nello step Luogo, dopo l&apos;incrocio con tutte le
+                fonti.
               </p>
-              <div className="mt-3 flex flex-wrap gap-1.5">
-                {poisUncovered.map((p) => (
-                  <span
-                    key={p.n}
-                    className="inline-flex items-center h-6 px-2.5 rounded-full text-[11px] font-medium bg-white text-amber-900 border border-amber-300"
+              <ul className="mt-3 space-y-1.5">
+                {spatialHints.map((h, idx) => (
+                  <li
+                    key={idx}
+                    className="rounded-lg bg-white border border-violet-200 px-3 py-2"
                   >
-                    {p.n}. {p.name}
-                  </span>
+                    <p className="text-[12px] font-medium text-violet-900">
+                      {h.name}
+                    </p>
+                    {h.description && (
+                      <p className="text-[11px] text-violet-900/70 mt-0.5 leading-relaxed">
+                        {h.description}
+                      </p>
+                    )}
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           </div>
         </div>
@@ -2373,8 +2504,10 @@ function KnowledgeBaseSection({
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<KbFilter>("tutti");
   const [catFilter, setCatFilter] = useState<KBCategory | "all">("all");
-  const [poiFilter, setPoiFilter] = useState<"all" | "none" | number>("all");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<
+    Record<string, boolean>
+  >({});
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   // Provider selection interna al prodotto: OpenAI di default (più affidabile JSON), Kimi come fallback.
@@ -2393,6 +2526,8 @@ function KnowledgeBaseSection({
 
   const sourceLabelFor = (fact: KBFact): string => {
     switch (fact.sourceRef.kind) {
+      case "planimetria":
+        return "Planimetria";
       case "sito":
         return sources.website?.title ?? "Sito web";
       case "documento": {
@@ -2406,6 +2541,34 @@ function KnowledgeBaseSection({
       default:
         return "—";
     }
+  };
+
+  // Chiave stabile per raggruppamento: stessa fonte fisica → stesso bucket
+  const sourceGroupKey = (fact: KBFact): string => {
+    switch (fact.sourceRef.kind) {
+      case "planimetria":
+        return "planimetria";
+      case "sito":
+        return "sito";
+      case "documento":
+        return `documento:${fact.sourceRef.id ?? "unknown"}`;
+      case "intervista":
+        return "intervista";
+      case "manuale":
+        return "manuale";
+      default:
+        return "other";
+    }
+  };
+
+  // Ordine di visualizzazione dei gruppi (planimetria prima, manuali ultimi)
+  const sourceGroupOrder = (key: string): number => {
+    if (key === "planimetria") return 0;
+    if (key === "sito") return 1;
+    if (key.startsWith("documento:")) return 2;
+    if (key === "intervista") return 3;
+    if (key === "manuale") return 4;
+    return 5;
   };
 
   const extract = async () => {
@@ -2455,6 +2618,50 @@ function KnowledgeBaseSection({
       }
       return chunks;
     };
+
+    if (sources.planimetria?.image) {
+      const plan = sources.planimetria;
+      // Compongo un testo completo che unisce descrizione generale + dettagli per ogni spunto
+      const hintsBlock = plan.spatialHints
+        .filter((h) => h.name.trim())
+        .map((h) =>
+          h.description.trim()
+            ? `## ${h.name}\n${h.description.trim()}`
+            : `## ${h.name}`,
+        )
+        .join("\n\n");
+      const fullText = [
+        plan.description.trim(),
+        hintsBlock
+          ? `\n\n---\n\nDettaglio punti osservati:\n\n${hintsBlock}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("");
+
+      if (fullText.trim().length > 30) {
+        const chunks = chunkText(fullText);
+        chunks.forEach((chunk, idx) => {
+          queue.push({
+            label:
+              chunks.length > 1
+                ? `Planimetria · parte ${idx + 1}/${chunks.length}`
+                : "Planimetria",
+            source: {
+              kind: "planimetria",
+              text: chunk,
+              spatialHints: plan.spatialHints.map((h) => h.name),
+              importance: plan.importance,
+              reliability: plan.reliability,
+            },
+            inherit: {
+              importance: plan.importance,
+              reliability: plan.reliability,
+            },
+          });
+        });
+      }
+    }
 
     if (sources.website?.text && sources.website.text.length > 30) {
       const chunks = chunkText(sources.website.text);
@@ -2561,10 +2768,6 @@ function KnowledgeBaseSection({
     setExtractProgress({ current: 0, total: queue.length });
     const allFacts: KBFact[] = [];
     const now = new Date().toISOString();
-    const poi = sources.planimetriaPoi?.map((p) => ({
-      n: p.n,
-      name: p.name,
-    }));
 
     try {
       for (let i = 0; i < queue.length; i++) {
@@ -2581,7 +2784,7 @@ function KnowledgeBaseSection({
             projectName: project?.name,
             type: project?.type,
             city: project?.city,
-            poi,
+            spatialHints: sources.planimetria?.spatialHints.map((h) => h.name),
             source: item.source,
           }),
         });
@@ -2625,7 +2828,11 @@ function KnowledgeBaseSection({
       });
 
       setExtractProgress({ current: queue.length, total: queue.length });
-      onChange({ facts: deduped, lastExtractedAt: now });
+      onChange({
+        facts: deduped,
+        lastExtractedAt: now,
+        extractedSignature: sourcesSignature(sources),
+      });
     } catch {
       setError("Errore di rete durante l'estrazione.");
     } finally {
@@ -2672,30 +2879,47 @@ function KnowledgeBaseSection({
     if (filter === "approvati" && !f.approved) return false;
     if (filter === "da-revisionare" && f.approved) return false;
     if (catFilter !== "all" && f.category !== catFilter) return false;
-    if (poiFilter === "none" && typeof f.poiRef === "number") return false;
-    if (typeof poiFilter === "number" && f.poiRef !== poiFilter) return false;
     return true;
   });
 
-  // Group by POI
-  const groups = new Map<number | "none", KBFact[]>();
+  // Group by fonte
+  const groups = new Map<string, KBFact[]>();
   visible.forEach((f) => {
-    const key = typeof f.poiRef === "number" ? f.poiRef : "none";
+    const key = sourceGroupKey(f);
     const arr = groups.get(key) ?? [];
     arr.push(f);
     groups.set(key, arr);
   });
-  const sortedKeys = Array.from(groups.keys()).sort((a, b) => {
-    if (a === "none") return 1;
-    if (b === "none") return -1;
-    return (a as number) - (b as number);
-  });
+  const sortedKeys = Array.from(groups.keys()).sort(
+    (a, b) => sourceGroupOrder(a) - sourceGroupOrder(b),
+  );
 
   const approvedCount = kb.facts.filter((f) => f.approved).length;
 
   return (
     <div className="space-y-5">
       <KbExplainer />
+
+      {/* Badge staleness: fonti cambiate dopo ultima estrazione */}
+      {kb.lastExtractedAt &&
+        kb.extractedSignature !== undefined &&
+        kb.extractedSignature !== sourcesSignature(sources) && (
+          <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
+            <AlertCircle
+              className="h-4 w-4 text-amber-700 shrink-0 mt-0.5"
+              strokeWidth={1.8}
+            />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-amber-900">
+                Fonti modificate dopo l&apos;ultima estrazione
+              </p>
+              <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
+                La Knowledge Base non riflette le ultime modifiche alle fonti.
+                Clicca &laquo;Riestrai&raquo; per allinearla.
+              </p>
+            </div>
+          </div>
+        )}
 
       {/* TOP STATUS */}
       <div className="rounded-2xl border border-border bg-card p-5 flex flex-wrap items-center gap-4 justify-between">
@@ -2862,36 +3086,6 @@ function KnowledgeBaseSection({
               ))}
             </div>
 
-            {sources.planimetriaPoi && sources.planimetriaPoi.length > 0 && (
-              <select
-                value={
-                  poiFilter === "all"
-                    ? "all"
-                    : poiFilter === "none"
-                      ? "none"
-                      : String(poiFilter)
-                }
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "all") setPoiFilter("all");
-                  else if (v === "none") setPoiFilter("none");
-                  else setPoiFilter(parseInt(v, 10));
-                }}
-                className="h-7 text-[11px] rounded-full border border-border bg-transparent px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30"
-              >
-                <option value="all">Ogni POI</option>
-                <option value="none">Senza POI</option>
-                {sources.planimetriaPoi
-                  .slice()
-                  .sort((a, b) => a.n - b.n)
-                  .map((p) => (
-                    <option key={p.n} value={p.n}>
-                      {p.n}. {p.name}
-                    </option>
-                  ))}
-              </select>
-            )}
-
             {approvedCount < kb.facts.length && (
               <button
                 type="button"
@@ -2912,253 +3106,260 @@ function KnowledgeBaseSection({
               </p>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {sortedKeys.map((key) => {
                 const facts = groups.get(key) ?? [];
-                const poi =
-                  typeof key === "number"
-                    ? sources.planimetriaPoi?.find((p) => p.n === key)
-                    : undefined;
-                const label =
-                  key === "none"
-                    ? "Non collegati a un POI"
-                    : `POI ${key}${poi ? ` · ${poi.name}` : ""}`;
+                // Etichetta gruppo: usa il primo fatto per derivare label human-readable
+                const label = facts[0] ? sourceLabelFor(facts[0]) : key;
+                const approvedInGroup = facts.filter((f) => f.approved).length;
+                // Default: collapsed se il totale fatti > 30
+                const defaultCollapsed = kb.facts.length > 30;
+                const isCollapsed =
+                  collapsedGroups[key] !== undefined
+                    ? collapsedGroups[key]
+                    : defaultCollapsed;
                 return (
-                  <div key={String(key)} className="space-y-2">
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground font-medium flex items-baseline gap-2">
-                      {label}
-                      <span className="text-muted-foreground/60 normal-case tracking-normal">
-                        · {facts.length}
-                      </span>
-                    </p>
-                    <ul className="space-y-2">
-                      {facts.map((f) => {
-                        const isOpen = openId === f.id;
-                        return (
-                          <li
-                            key={f.id}
-                            className={cn(
-                              "rounded-xl border bg-card transition-colors",
-                              f.approved
-                                ? "border-border"
-                                : "border-amber-500/40 bg-amber-50/30",
-                            )}
-                          >
-                            <div className="flex items-start gap-3 p-3">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  updateFact(f.id, { approved: !f.approved })
-                                }
-                                aria-label={
-                                  f.approved
-                                    ? "Annulla approvazione"
-                                    : "Approva"
-                                }
-                                className={cn(
-                                  "shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors",
-                                  f.approved
-                                    ? "bg-brand border-brand text-white"
-                                    : "border-muted-foreground/40 hover:border-foreground",
-                                )}
-                              >
-                                {f.approved && (
-                                  <Check className="h-3 w-3" strokeWidth={3} />
-                                )}
-                              </button>
-
-                              <div className="flex-1 min-w-0">
-                                <p
+                  <div
+                    key={key}
+                    className="rounded-xl border border-border bg-card overflow-hidden"
+                  >
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCollapsedGroups((prev) => ({
+                          ...prev,
+                          [key]: !isCollapsed,
+                        }))
+                      }
+                      className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/40 transition-colors"
+                    >
+                      <div className="flex items-baseline gap-3 min-w-0">
+                        <span className="text-sm font-medium truncate">
+                          {label}
+                        </span>
+                        <span className="text-[11px] text-muted-foreground tabular-nums whitespace-nowrap">
+                          {facts.length}{" "}
+                          {facts.length === 1 ? "fatto" : "fatti"}
+                          {" · "}
+                          <span className="text-brand">
+                            {approvedInGroup}
+                          </span>{" "}
+                          approvati
+                        </span>
+                      </div>
+                      <ChevronUp
+                        className={cn(
+                          "h-4 w-4 text-muted-foreground shrink-0 transition-transform",
+                          isCollapsed ? "rotate-180" : "",
+                        )}
+                        strokeWidth={1.8}
+                      />
+                    </button>
+                    {!isCollapsed && (
+                      <ul className="space-y-2 px-3 pb-3">
+                        {facts.map((f) => {
+                          const isOpen = openId === f.id;
+                          return (
+                            <li
+                              key={f.id}
+                              className={cn(
+                                "rounded-xl border bg-card transition-colors",
+                                f.approved
+                                  ? "border-border"
+                                  : "border-amber-500/40 bg-amber-50/30",
+                              )}
+                            >
+                              <div className="flex items-start gap-3 p-3">
+                                <button
+                                  type="button"
                                   onClick={() =>
-                                    setOpenId(isOpen ? null : f.id)
+                                    updateFact(f.id, { approved: !f.approved })
                                   }
-                                  className="text-sm leading-relaxed cursor-text"
-                                >
-                                  {f.content || (
-                                    <span className="text-muted-foreground italic">
-                                      Fatto vuoto — click per modificare
-                                    </span>
+                                  aria-label={
+                                    f.approved
+                                      ? "Annulla approvazione"
+                                      : "Approva"
+                                  }
+                                  className={cn(
+                                    "shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors",
+                                    f.approved
+                                      ? "bg-brand border-brand text-white"
+                                      : "border-muted-foreground/40 hover:border-foreground",
                                   )}
-                                </p>
-                                <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                  <span
-                                    className={cn(
-                                      "inline-flex items-center h-5 px-2 rounded-full text-[10px] font-medium border",
-                                      categoryStyle(f.category),
-                                    )}
+                                >
+                                  {f.approved && (
+                                    <Check
+                                      className="h-3 w-3"
+                                      strokeWidth={3}
+                                    />
+                                  )}
+                                </button>
+
+                                <div className="flex-1 min-w-0">
+                                  <p
+                                    onClick={() =>
+                                      setOpenId(isOpen ? null : f.id)
+                                    }
+                                    className="text-sm leading-relaxed cursor-text"
                                   >
-                                    {
-                                      KB_CATEGORIES.find(
-                                        (c) => c.value === f.category,
-                                      )?.label
-                                    }
-                                  </span>
-                                  <span className="inline-flex items-center h-5 px-2 rounded-full text-[10px] text-muted-foreground bg-muted">
-                                    {f.reliability}
-                                  </span>
-                                  <span className="text-[10px] text-muted-foreground truncate">
-                                    · {sourceLabelFor(f)}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setOpenId(isOpen ? null : f.id)
-                                  }
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
-                                  aria-label={isOpen ? "Chiudi" : "Modifica"}
-                                >
-                                  {isOpen ? (
-                                    <ChevronUp
-                                      className="h-3.5 w-3.5"
-                                      strokeWidth={1.8}
-                                    />
-                                  ) : (
-                                    <Pencil
-                                      className="h-3.5 w-3.5"
-                                      strokeWidth={1.8}
-                                    />
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => removeFact(f.id)}
-                                  className="h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                  aria-label="Elimina"
-                                >
-                                  <Trash2
-                                    className="h-3.5 w-3.5"
-                                    strokeWidth={1.8}
-                                  />
-                                </button>
-                              </div>
-                            </div>
-
-                            {isOpen && (
-                              <div className="border-t border-border/60 p-4 space-y-3 bg-muted/20">
-                                <div>
-                                  <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1 block">
-                                    Fatto
-                                  </Label>
-                                  <textarea
-                                    value={f.content}
-                                    onChange={(e) =>
-                                      updateFact(f.id, {
-                                        content: e.target.value,
-                                      })
-                                    }
-                                    rows={3}
-                                    placeholder="Scrivi un fatto atomico…"
-                                    className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-foreground/30"
-                                  />
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                  <div>
-                                    <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5 block">
-                                      Categoria
-                                    </Label>
-                                    <div className="flex flex-wrap gap-1">
-                                      {KB_CATEGORIES.map((c) => (
-                                        <button
-                                          key={c.value}
-                                          type="button"
-                                          onClick={() =>
-                                            updateFact(f.id, {
-                                              category: c.value,
-                                            })
-                                          }
-                                          title={c.hint}
-                                          className={cn(
-                                            "inline-flex items-center h-7 px-2.5 rounded-full text-[10px] font-medium border transition-colors",
-                                            f.category === c.value
-                                              ? `${c.color} border-current`
-                                              : "border-border text-muted-foreground hover:text-foreground",
-                                          )}
-                                        >
-                                          {c.label}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5 block">
-                                      Affidabilità
-                                    </Label>
-                                    <div className="flex gap-1">
-                                      {(
-                                        [
-                                          "alta",
-                                          "media",
-                                          "bassa",
-                                        ] as Reliability[]
-                                      ).map((r) => (
-                                        <button
-                                          key={r}
-                                          type="button"
-                                          onClick={() =>
-                                            updateFact(f.id, { reliability: r })
-                                          }
-                                          className={cn(
-                                            "inline-flex items-center h-7 px-3 rounded-full text-[10px] font-medium transition-colors",
-                                            f.reliability === r
-                                              ? "bg-foreground text-background"
-                                              : "bg-muted text-muted-foreground hover:text-foreground",
-                                          )}
-                                        >
-                                          {r}
-                                        </button>
-                                      ))}
-                                    </div>
+                                    {f.content || (
+                                      <span className="text-muted-foreground italic">
+                                        Fatto vuoto — click per modificare
+                                      </span>
+                                    )}
+                                  </p>
+                                  <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                    <span
+                                      className={cn(
+                                        "inline-flex items-center h-5 px-2 rounded-full text-[10px] font-medium border",
+                                        categoryStyle(f.category),
+                                      )}
+                                    >
+                                      {
+                                        KB_CATEGORIES.find(
+                                          (c) => c.value === f.category,
+                                        )?.label
+                                      }
+                                    </span>
+                                    <span className="inline-flex items-center h-5 px-2 rounded-full text-[10px] text-muted-foreground bg-muted">
+                                      {f.reliability}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground truncate">
+                                      · {sourceLabelFor(f)}
+                                    </span>
                                   </div>
                                 </div>
 
-                                {sources.planimetriaPoi &&
-                                  sources.planimetriaPoi.length > 0 && (
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenId(isOpen ? null : f.id)
+                                    }
+                                    className="h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted"
+                                    aria-label={isOpen ? "Chiudi" : "Modifica"}
+                                  >
+                                    {isOpen ? (
+                                      <ChevronUp
+                                        className="h-3.5 w-3.5"
+                                        strokeWidth={1.8}
+                                      />
+                                    ) : (
+                                      <Pencil
+                                        className="h-3.5 w-3.5"
+                                        strokeWidth={1.8}
+                                      />
+                                    )}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => removeFact(f.id)}
+                                    className="h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                                    aria-label="Elimina"
+                                  >
+                                    <Trash2
+                                      className="h-3.5 w-3.5"
+                                      strokeWidth={1.8}
+                                    />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {isOpen && (
+                                <div className="border-t border-border/60 p-4 space-y-3 bg-muted/20">
+                                  <div>
+                                    <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1 block">
+                                      Fatto
+                                    </Label>
+                                    <textarea
+                                      value={f.content}
+                                      onChange={(e) =>
+                                        updateFact(f.id, {
+                                          content: e.target.value,
+                                        })
+                                      }
+                                      rows={3}
+                                      placeholder="Scrivi un fatto atomico…"
+                                      className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground resize-y focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                                    />
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                     <div>
                                       <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5 block">
-                                        POI collegato
+                                        Categoria
                                       </Label>
-                                      <select
-                                        value={f.poiRef ?? ""}
-                                        onChange={(e) =>
-                                          updateFact(f.id, {
-                                            poiRef: e.target.value
-                                              ? parseInt(e.target.value, 10)
-                                              : undefined,
-                                          })
-                                        }
-                                        className="h-9 text-sm rounded-md border border-border bg-card px-3 text-foreground focus:outline-none focus:ring-1 focus:ring-foreground/30"
-                                      >
-                                        <option value="">— Nessuno —</option>
-                                        {sources.planimetriaPoi
-                                          .slice()
-                                          .sort((a, b) => a.n - b.n)
-                                          .map((p) => (
-                                            <option key={p.n} value={p.n}>
-                                              {p.n}. {p.name}
-                                            </option>
-                                          ))}
-                                      </select>
+                                      <div className="flex flex-wrap gap-1">
+                                        {KB_CATEGORIES.map((c) => (
+                                          <button
+                                            key={c.value}
+                                            type="button"
+                                            onClick={() =>
+                                              updateFact(f.id, {
+                                                category: c.value,
+                                              })
+                                            }
+                                            title={c.hint}
+                                            className={cn(
+                                              "inline-flex items-center h-7 px-2.5 rounded-full text-[10px] font-medium border transition-colors",
+                                              f.category === c.value
+                                                ? `${c.color} border-current`
+                                                : "border-border text-muted-foreground hover:text-foreground",
+                                            )}
+                                          >
+                                            {c.label}
+                                          </button>
+                                        ))}
+                                      </div>
                                     </div>
-                                  )}
 
-                                <p className="text-[11px] text-muted-foreground">
-                                  Fonte: {sourceLabelFor(f)} ·{" "}
-                                  {f.sourceRef.kind === "manuale"
-                                    ? "manuale"
-                                    : "estratto dall'AI"}
-                                </p>
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
+                                    <div>
+                                      <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1.5 block">
+                                        Affidabilità
+                                      </Label>
+                                      <div className="flex gap-1">
+                                        {(
+                                          [
+                                            "alta",
+                                            "media",
+                                            "bassa",
+                                          ] as Reliability[]
+                                        ).map((r) => (
+                                          <button
+                                            key={r}
+                                            type="button"
+                                            onClick={() =>
+                                              updateFact(f.id, {
+                                                reliability: r,
+                                              })
+                                            }
+                                            className={cn(
+                                              "inline-flex items-center h-7 px-3 rounded-full text-[10px] font-medium transition-colors",
+                                              f.reliability === r
+                                                ? "bg-foreground text-background"
+                                                : "bg-muted text-muted-foreground hover:text-foreground",
+                                            )}
+                                          >
+                                            {r}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Fonte: {sourceLabelFor(f)} ·{" "}
+                                    {f.sourceRef.kind === "manuale"
+                                      ? "manuale"
+                                      : "estratto dall'AI"}
+                                  </p>
+                                </div>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
                   </div>
                 );
               })}

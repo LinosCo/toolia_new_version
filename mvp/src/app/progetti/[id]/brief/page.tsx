@@ -126,6 +126,7 @@ export default function BriefStepPage({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoGenAttemptedRef = useRef(false);
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
@@ -227,6 +228,22 @@ export default function BriefStepPage({
       setGenerating(false);
     }
   };
+
+  // Auto-generazione al primo ingresso se Brief vuoto + KB pronta
+  useEffect(() => {
+    if (!loaded) return;
+    if (autoGenAttemptedRef.current) return;
+    if (generating) return;
+    const empty =
+      !brief.obiettivo.trim() &&
+      !brief.promessaNarrativa.trim() &&
+      !brief.target.trim() &&
+      brief.mustTell.length === 0;
+    if (empty && canGenerate) {
+      autoGenAttemptedRef.current = true;
+      void generate();
+    }
+  }, [loaded, brief, canGenerate, generating, generate]);
 
   if (!loaded) return <div className="min-h-screen" />;
 
@@ -993,20 +1010,20 @@ export default function BriefStepPage({
           <p className="text-xs text-muted-foreground hidden sm:block">
             {approvedFacts.length} fatti approvati
           </p>
-          <Link
-            href={`/progetti/${projectId}/luogo`}
-            onClick={() => saveProgress(projectId, { currentStep: "luogo" })}
-            aria-disabled={!briefReady}
-            className={cn(
-              "inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium transition-colors shadow-[0_1px_3px_rgba(0,0,0,0.08)]",
-              briefReady
-                ? "bg-brand text-white hover:bg-brand/90"
-                : "bg-muted text-muted-foreground pointer-events-none",
-            )}
-          >
-            Vai al Luogo
-            <ArrowLeft className="h-4 w-4 rotate-180" strokeWidth={2} />
-          </Link>
+          {briefReady ? (
+            <Link
+              href={`/progetti/${projectId}/luogo`}
+              onClick={() => saveProgress(projectId, { currentStep: "luogo" })}
+              className="inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium bg-brand text-white hover:bg-brand/90 transition-colors shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
+            >
+              Vai al Luogo
+              <ArrowLeft className="h-4 w-4 rotate-180" strokeWidth={2} />
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium bg-muted text-muted-foreground">
+              Completa i campi richiesti
+            </span>
+          )}
         </div>
       </footer>
     </div>

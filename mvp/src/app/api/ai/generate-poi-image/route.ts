@@ -68,21 +68,55 @@ export async function POST(req: NextRequest) {
     });
 
     const client = new OpenAI({ apiKey });
-    const result = await client.images.generate({
-      model: "dall-e-3",
-      prompt,
-      size: "1024x1024",
-      quality: "standard",
-      n: 1,
-      response_format: "b64_json",
-    });
 
-    const b64 = result.data?.[0]?.b64_json;
+    // gpt-image-1.5 è il modello corrente (Apr 2025+, successore di gpt-image-1 e dall-e-3).
+    // Se la chiamata fallisce (organizzazione non verificata o modello non disponibile),
+    // fallback automatico a gpt-image-1 e poi dall-e-3.
+    const attemptModels = ["gpt-image-1.5", "gpt-image-1", "dall-e-3"] as const;
+    let b64: string | undefined;
+    let usedModel: string | undefined;
+    let lastErr: unknown = null;
+
+    for (const m of attemptModels) {
+      try {
+        const params: Parameters<typeof client.images.generate>[0] = {
+          model: m,
+          prompt,
+          n: 1,
+          // gpt-image usa "1024x1024"/"1024x1536"/"1536x1024"; dall-e-3 usa "1024x1024"/"1024x1792"
+          size: "1024x1024",
+        };
+        // dall-e-3 accetta response_format; gpt-image-1.x restituisce sempre b64
+        if (m === "dall-e-3") {
+          (params as unknown as Record<string, unknown>).response_format =
+            "b64_json";
+          (params as unknown as Record<string, unknown>).quality = "standard";
+        } else {
+          (params as unknown as Record<string, unknown>).quality = "high";
+        }
+        const result = (await client.images.generate(params)) as {
+          data?: { b64_json?: string; url?: string }[];
+        };
+        b64 = result.data?.[0]?.b64_json ?? undefined;
+        if (b64) {
+          usedModel = m;
+          break;
+        }
+      } catch (err) {
+        lastErr = err;
+        continue;
+      }
+    }
+
     if (!b64) {
+      const msg =
+        lastErr instanceof Error
+          ? lastErr.message
+          : "nessun modello disponibile";
       return NextResponse.json(
         {
-          error: "empty_response",
-          message: "DALL-E non ha restituito immagine.",
+          error: "generation_failed",
+          message: `L'AI non ha restituito un'immagine (${msg}). Verifica la chiave OpenAI e l'abilitazione del modello immagini.`,
         },
         { status: 502 },
       );
@@ -90,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       dataUrl: `data:image/png;base64,${b64}`,
-      revisedPrompt: result.data?.[0]?.revised_prompt,
+      model: usedModel,
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "unknown";

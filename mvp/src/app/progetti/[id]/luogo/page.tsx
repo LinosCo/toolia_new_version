@@ -1,22 +1,26 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { use, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { motion } from "motion/react";
 import {
   ArrowLeft,
-  MapPin,
+  ArrowRight,
+  Check,
   Sparkles,
   Loader2,
   AlertCircle,
-  Check,
-  X,
   Trash2,
   Plus,
-  Clock,
-  Map as MapIcon,
+  RefreshCw,
+  MapPin,
+  Layers,
   Image as ImageIcon,
   Info,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import {
   loadProject,
   loadSources,
@@ -25,64 +29,69 @@ import {
   loadMap,
   saveMap,
   saveProgress,
-  inferSpatialMode,
   emptyMap,
+  inferSpatialMode,
+  newSourceId,
   type ProjectMap,
   type MapPoi,
   type MapZone,
   type ZoneFunction,
   type SpatialMode,
+  type PoiType,
   type ProjectSources,
-  type ProjectKB,
   type ProjectBrief,
+  type ProjectKB,
   type StoredProject,
 } from "@/lib/project-store";
 import { loadApiKeys } from "@/lib/api-keys";
-import { loadGoogleMaps, geocodeAddress } from "@/lib/google-maps-loader";
-import { affineFrom2Anchors, applyAffine } from "@/lib/planimetria-transform";
-import { cn } from "@/lib/utils";
+import {
+  loadGoogleMaps,
+  geocodeAddress,
+  planimetriaToLatLng,
+  gridLatLng,
+} from "@/lib/google-maps-loader";
 
-function cuid(prefix = "p"): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
-const DEFAULT_CENTER = { lat: 45.4642, lng: 9.19 };
-
-const ZONE_FUNCTIONS: {
-  value: ZoneFunction;
-  label: string;
-  color: string;
-}[] = [
-  {
-    value: "opening",
-    label: "Apertura",
-    color: "bg-sky-500/15 text-sky-700 border-sky-500/30",
-  },
-  {
-    value: "development",
-    label: "Sviluppo",
-    color: "bg-emerald-500/15 text-emerald-700 border-emerald-500/30",
-  },
-  {
-    value: "climax",
-    label: "Climax",
-    color: "bg-brand/15 text-brand border-brand/30",
-  },
-  {
-    value: "closure",
-    label: "Chiusura",
-    color: "bg-violet-500/15 text-violet-700 border-violet-500/30",
-  },
-];
-
-const SPATIAL_HINT: Record<SpatialMode, string> = {
-  indoor:
-    "Luogo al chiuso — lavora sulla planimetria; GPS serve solo se pubblichi un'app esterna con mappa",
-  gps: "Luogo all'aperto — usa la mappa GPS, la planimetria non è necessaria",
-  hybrid: "Luogo misto — planimetria per gli interni, GPS per gli esterni",
+type ProposedPoi = {
+  id: string; // locale, per tracking approvazione
+  name: string;
+  description: string;
+  zoneSuggested: string;
+  minStaySeconds: number;
+  evidence: string;
+  approved: boolean;
 };
 
-type MainView = "planimetria" | "gps";
+type ProposedZone = {
+  id: string;
+  name: string;
+  narrativePromise: string;
+  function: ZoneFunction;
+  reasoning: string;
+};
+
+const ZONE_FUNCTION_LABEL: Record<ZoneFunction, string> = {
+  apertura: "Apertura",
+  sviluppo: "Sviluppo",
+  climax: "Climax",
+};
+
+const ZONE_FUNCTION_HINT: Record<ZoneFunction, string> = {
+  apertura: "Prima impressione, orientamento",
+  sviluppo: "Cuore della visita",
+  climax: "Culmine, punto memorabile",
+};
+
+const ZONE_PALETTE = [
+  "#0ea5e9", // sky
+  "#10b981", // emerald
+  "#f59e0b", // amber
+  "#f43f5e", // rose
+  "#8b5cf6", // violet
+];
+
+function pickNextUnplacedForGps(pois: MapPoi[]): MapPoi | undefined {
+  return pois.find((p) => typeof p.lat !== "number");
+}
 
 export default function LuogoStepPage({
   params,
@@ -92,21 +101,27 @@ export default function LuogoStepPage({
   const { id: projectId } = use(params);
 
   const [project, setProject] = useState<StoredProject | null>(null);
-  const [sources, setSources] = useState<ProjectSources | null>(null);
-  const [, setBrief] = useState<ProjectBrief | undefined>(undefined);
+  const [sources, setSources] = useState<ProjectSources>({
+    images: [],
+    documents: [],
+  });
+  const [brief, setBrief] = useState<ProjectBrief | undefined>(undefined);
   const [kb, setKb] = useState<ProjectKB>({ facts: [] });
   const [map, setMapState] = useState<ProjectMap>(emptyMap());
   const [loaded, setLoaded] = useState(false);
-  const [selectedPoiId, setSelectedPoiId] = useState<string | null>(null);
-  const [view, setView] = useState<MainView>("planimetria");
-  const [zoneBusy, setZoneBusy] = useState(false);
-  const [zoneError, setZoneError] = useState<string | null>(null);
-  const [showGpsWizard, setShowGpsWizard] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const mapStateRef = useRef(map);
-  useEffect(() => {
-    mapStateRef.current = map;
-  }, [map]);
+  const [proposing, setProposing] = useState(false);
+  const [proposalError, setProposalError] = useState<string | null>(null);
+  const [proposedPois, setProposedPois] = useState<ProposedPoi[] | null>(null);
+  const [proposedZones, setProposedZones] = useState<ProposedZone[] | null>(
+    null,
+  );
+  const [proposedSpatialMode, setProposedSpatialMode] = useState<
+    ProjectMap["spatialMode"] | null
+  >(null);
+  const autoProposeAttemptedRef = useRef(false);
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
@@ -114,230 +129,217 @@ export default function LuogoStepPage({
     : keys?.llm.kimi
       ? "kimi"
       : null;
+  const hasLlmKey = activeProvider !== null;
 
-  const [saved, setSaved] = useState(false);
-  const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const persist = useCallback(
-    (next: ProjectMap) => {
-      setMapState(next);
-      mapStateRef.current = next;
-      saveMap(projectId, next).then(() => {
-        if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
-        setSaved(true);
-        savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
-        window.dispatchEvent(new Event("toolia:map-updated"));
-      });
-    },
-    [projectId],
-  );
-
-  /* ========== Initial load ========== */
   useEffect(() => {
     saveProgress(projectId, { currentStep: "luogo" });
     let alive = true;
     (async () => {
-      const proj = loadProject(projectId) ?? null;
-      const [src, br, existingMap, kbData] = await Promise.all([
+      const p = loadProject(projectId) ?? null;
+      const [s, b, k, m] = await Promise.all([
         loadSources(projectId),
         loadBrief(projectId),
-        loadMap(projectId),
         loadKB(projectId),
+        loadMap(projectId),
       ]);
       if (!alive) return;
-      setProject(proj);
-      setSources(src);
-      setBrief(br);
-      setKb(kbData);
-
-      const mode = inferSpatialMode(proj?.type ?? undefined);
-      const hasPlanimetria = !!src.planimetria;
-
-      let initial: ProjectMap;
-      if (existingMap) {
-        // Retrofit planimetriaX/Y se mancano
-        const planPoiMap = new Map(
-          (src.planimetriaPoi ?? []).map((p) => [p.n, p]),
-        );
-        const needsRetrofit = existingMap.pois.some(
-          (p) =>
-            typeof p.fromPlanimetriaN === "number" &&
-            typeof p.planimetriaX !== "number" &&
-            planPoiMap.has(p.fromPlanimetriaN),
-        );
-        if (needsRetrofit) {
-          initial = {
-            ...existingMap,
-            pois: existingMap.pois.map((p) => {
-              if (
-                typeof p.fromPlanimetriaN === "number" &&
-                typeof p.planimetriaX !== "number"
-              ) {
-                const ps = planPoiMap.get(p.fromPlanimetriaN);
-                if (ps) return { ...p, planimetriaX: ps.x, planimetriaY: ps.y };
-              }
-              return p;
-            }),
-          };
-          saveMap(projectId, initial);
-        } else {
-          initial = existingMap;
-        }
-      } else {
-        const poisFromPlan: MapPoi[] = (src.planimetriaPoi ?? [])
-          .slice()
-          .sort((a, b) => a.n - b.n)
-          .map((p, idx) => ({
-            id: cuid("poi"),
-            name: p.name,
-            description: p.description,
-            order: idx,
-            fromPlanimetriaN: p.n,
-            planimetriaX: p.x,
-            planimetriaY: p.y,
-            type: mode === "gps" ? "outdoor" : "indoor",
-          }));
-        initial = {
-          ...emptyMap(),
-          spatialMode: mode,
-          pois: poisFromPlan,
-        };
-        saveMap(projectId, initial);
-      }
-      setMapState(initial);
-      mapStateRef.current = initial;
-
-      // View di default: planimetria se esiste, altrimenti GPS
-      setView(hasPlanimetria ? "planimetria" : "gps");
+      setProject(p);
+      setSources(s);
+      setBrief(b);
+      setKb(k);
+      setMapState(
+        m ?? { ...emptyMap(), spatialMode: inferSpatialMode(p?.type) },
+      );
       setLoaded(true);
     })();
-
-    // Re-sync quando Fonti cambia (planimetria/POI) o KB cambia (per zone)
-    const onUpstream = async () => {
-      const [src, kbData] = await Promise.all([
-        loadSources(projectId),
-        loadKB(projectId),
-      ]);
-      if (!alive) return;
-      setSources(src);
-      setKb(kbData);
-      // Se arrivano nuovi planimetriaPoi dalle Fonti, aggiungi quelli mancanti
-      const existing = mapStateRef.current;
-      const known = new Set(
-        existing.pois
-          .map((p) => p.fromPlanimetriaN)
-          .filter((n): n is number => typeof n === "number"),
-      );
-      const newOnes = (src.planimetriaPoi ?? []).filter((p) => !known.has(p.n));
-      if (newOnes.length > 0) {
-        const additions: MapPoi[] = newOnes.map((p, idx) => ({
-          id: cuid("poi"),
-          name: p.name,
-          description: p.description,
-          order: existing.pois.length + idx,
-          fromPlanimetriaN: p.n,
-          planimetriaX: p.x,
-          planimetriaY: p.y,
-        }));
-        persist({ ...existing, pois: [...existing.pois, ...additions] });
-      }
-    };
-    window.addEventListener("toolia:sources-updated", onUpstream);
     return () => {
       alive = false;
-      window.removeEventListener("toolia:sources-updated", onUpstream);
     };
-  }, [projectId, persist]);
+  }, [projectId]);
 
-  /* ========== POI CRUD ========== */
+  const persist = (next: ProjectMap) => {
+    setMapState(next);
+    saveMap(projectId, next).then(() => {
+      if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
+      setSaved(true);
+      savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
+      window.dispatchEvent(new Event("toolia:map-updated"));
+    });
+  };
+
+  const approvedFacts = useMemo(
+    () => kb.facts.filter((f) => f.approved),
+    [kb.facts],
+  );
+
+  const canPropose = hasLlmKey && (approvedFacts.length >= 5 || !!brief);
+
+  const requestProposal = async () => {
+    if (!canPropose || !keys || !activeProvider) return;
+    setProposing(true);
+    setProposalError(null);
+    try {
+      const res = await fetch("/api/ai/propose-luogo", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey: keys.llm[activeProvider],
+          provider: activeProvider,
+          projectName: project?.name ?? "Progetto",
+          type: project?.type,
+          city: project?.city,
+          brief: brief
+            ? {
+                obiettivo: brief.obiettivo,
+                promessaNarrativa: brief.promessaNarrativa,
+                target: brief.target,
+                tipoEsperienza: brief.tipoEsperienza,
+                mustTell: brief.mustTell,
+                niceToTell: brief.niceToTell,
+                avoid: brief.avoid,
+              }
+            : undefined,
+          planimetriaDescription: sources.planimetria?.description,
+          spatialHints: sources.planimetria?.spatialHints,
+          facts: approvedFacts.slice(0, 150).map((f) => ({
+            content: f.content,
+            category: f.category,
+            importance: f.importance,
+            reliability: f.reliability,
+            sourceKind: f.sourceRef.kind,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setProposalError(data.message ?? "Errore durante la proposta.");
+        return;
+      }
+      const zones: ProposedZone[] = (data.zones ?? []).map(
+        (
+          z: {
+            name: string;
+            narrativePromise: string;
+            function: ZoneFunction;
+            reasoning: string;
+          },
+          i: number,
+        ) => ({
+          id: `pz-${i}-${Date.now()}`,
+          name: z.name,
+          narrativePromise: z.narrativePromise ?? "",
+          function: z.function,
+          reasoning: z.reasoning ?? "",
+        }),
+      );
+      const pois: ProposedPoi[] = (data.pois ?? []).map(
+        (
+          p: {
+            name: string;
+            description: string;
+            zoneSuggested: string;
+            minStaySeconds: number;
+            evidence: string;
+          },
+          i: number,
+        ) => ({
+          id: `pp-${i}-${Date.now()}`,
+          name: p.name,
+          description: p.description ?? "",
+          zoneSuggested: p.zoneSuggested ?? "",
+          minStaySeconds: p.minStaySeconds ?? 120,
+          evidence: p.evidence ?? "",
+          approved: true,
+        }),
+      );
+      setProposedZones(zones);
+      setProposedPois(pois);
+      setProposedSpatialMode(data.spatialMode ?? null);
+    } catch {
+      setProposalError("Errore di rete.");
+    } finally {
+      setProposing(false);
+    }
+  };
+
+  // Auto-propose al primo ingresso se nessun POI ancora
+  useEffect(() => {
+    if (!loaded) return;
+    if (autoProposeAttemptedRef.current) return;
+    if (map.pois.length > 0) return;
+    if (!canPropose) return;
+    if (proposing) return;
+    if (proposedPois !== null) return;
+    autoProposeAttemptedRef.current = true;
+    void requestProposal();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, map.pois.length, canPropose, proposing, proposedPois]);
+
+  const acceptProposal = () => {
+    if (!proposedZones || !proposedPois) return;
+    const approvedList = proposedPois.filter((p) => p.approved);
+    const zoneByName = new Map<string, string>();
+    const newZones: MapZone[] = proposedZones.map((z, i) => {
+      const id = newSourceId("z");
+      zoneByName.set(z.name.toLowerCase(), id);
+      return {
+        id,
+        name: z.name,
+        narrativePromise: z.narrativePromise,
+        function: z.function,
+        order: i,
+      };
+    });
+    const newPois: MapPoi[] = approvedList.map((p, i) => ({
+      id: newSourceId("poi"),
+      name: p.name,
+      description: p.description,
+      order: i,
+      minStaySeconds: p.minStaySeconds,
+      zoneId: zoneByName.get(p.zoneSuggested.toLowerCase()),
+    }));
+    const nextMap: ProjectMap = {
+      ...map,
+      spatialMode: proposedSpatialMode ?? map.spatialMode,
+      zones: newZones,
+      pois: newPois,
+    };
+    persist(nextMap);
+    setProposedPois(null);
+    setProposedZones(null);
+    setProposedSpatialMode(null);
+  };
+
+  const discardProposal = () => {
+    setProposedPois(null);
+    setProposedZones(null);
+    setProposedSpatialMode(null);
+  };
+
+  /* ========================== POI CRUD ========================== */
+
   const updatePoi = (id: string, patch: Partial<MapPoi>) => {
     persist({
       ...map,
       pois: map.pois.map((p) => (p.id === id ? { ...p, ...patch } : p)),
     });
   };
+
   const removePoi = (id: string) => {
     persist({ ...map, pois: map.pois.filter((p) => p.id !== id) });
-    if (selectedPoiId === id) setSelectedPoiId(null);
   };
+
   const addPoi = (planX?: number, planY?: number) => {
     const newPoi: MapPoi = {
-      id: cuid("poi"),
+      id: newSourceId("poi"),
       name: "Nuovo punto",
       description: "",
       order: map.pois.length,
+      minStaySeconds: 120,
       planimetriaX: planX,
       planimetriaY: planY,
     };
     persist({ ...map, pois: [...map.pois, newPoi] });
-    setSelectedPoiId(newPoi.id);
-  };
-
-  /* ========== Zones AI ========== */
-  const suggestZones = async () => {
-    if (!activeProvider || !keys) {
-      setZoneError("Configura una chiave LLM in Impostazioni.");
-      return;
-    }
-    if (map.pois.length < 2) {
-      setZoneError("Servono almeno 2 POI.");
-      return;
-    }
-    setZoneBusy(true);
-    setZoneError(null);
-    try {
-      const poisInput = map.pois.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        relatedFacts: kb.facts
-          .filter((f) => f.approved && f.poiRef === p.fromPlanimetriaN)
-          .slice(0, 5)
-          .map((f) => f.content),
-      }));
-      const res = await fetch("/api/ai/suggest-zones", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          apiKey: keys.llm[activeProvider],
-          provider: activeProvider,
-          projectName: project?.name,
-          type: project?.type,
-          pois: poisInput,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setZoneError(data.message ?? "Errore proposta zone.");
-        return;
-      }
-      const rawZones: {
-        name: string;
-        narrativePromise: string;
-        function: ZoneFunction;
-        poiIds: string[];
-      }[] = data.zones ?? [];
-      const zones: MapZone[] = rawZones.map((z, i) => ({
-        id: cuid("zone"),
-        name: z.name,
-        narrativePromise: z.narrativePromise,
-        function: z.function,
-        order: i,
-      }));
-      const zoneByPoi = new Map<string, string>();
-      rawZones.forEach((z, i) => {
-        z.poiIds.forEach((pid) => zoneByPoi.set(pid, zones[i].id));
-      });
-      const nextPois = map.pois.map((p) => ({
-        ...p,
-        zoneId: zoneByPoi.get(p.id) ?? p.zoneId,
-      }));
-      persist({ ...map, zones, pois: nextPois });
-    } catch {
-      setZoneError("Errore di rete.");
-    } finally {
-      setZoneBusy(false);
-    }
   };
 
   const updateZone = (id: string, patch: Partial<MapZone>) => {
@@ -346,6 +348,7 @@ export default function LuogoStepPage({
       zones: map.zones.map((z) => (z.id === id ? { ...z, ...patch } : z)),
     });
   };
+
   const removeZone = (id: string) => {
     persist({
       ...map,
@@ -355,171 +358,308 @@ export default function LuogoStepPage({
       ),
     });
   };
+
   const addZone = () => {
-    const newZone: MapZone = {
-      id: cuid("zone"),
-      name: "Nuova zona",
-      narrativePromise: "",
-      function: "development",
-      order: map.zones.length,
-    };
-    persist({ ...map, zones: [...map.zones, newZone] });
+    persist({
+      ...map,
+      zones: [
+        ...map.zones,
+        {
+          id: newSourceId("z"),
+          name: "Nuova zona",
+          narrativePromise: "",
+          function: "sviluppo",
+          order: map.zones.length,
+        },
+      ],
+    });
   };
 
-  const selectedPoi = useMemo(
-    () => map.pois.find((p) => p.id === selectedPoiId) ?? null,
-    [map.pois, selectedPoiId],
-  );
+  const setSpatialMode = (spatialMode: SpatialMode) => {
+    persist({ ...map, spatialMode });
+  };
 
-  const placedGps = map.pois.filter(
-    (p) => typeof p.lat === "number" && typeof p.lng === "number",
-  ).length;
-  const positionedOnPlan = map.pois.filter(
-    (p) => typeof p.planimetriaX === "number",
-  ).length;
+  const [autoGpsBusy, setAutoGpsBusy] = useState(false);
+  const [autoGpsError, setAutoGpsError] = useState<string | null>(null);
 
-  const hasPlanimetria = !!sources?.planimetria;
+  const autoComputeGps = async () => {
+    const mapsKey = loadApiKeys().googleMaps;
+    if (!mapsKey) {
+      setAutoGpsError("Configura la chiave Google Maps in Impostazioni.");
+      return;
+    }
+    const address =
+      project?.address?.trim() || project?.city?.trim() || project?.name;
+    if (!address) {
+      setAutoGpsError(
+        "Il progetto non ha un indirizzo. Impostalo nei dettagli del progetto.",
+      );
+      return;
+    }
+    setAutoGpsBusy(true);
+    setAutoGpsError(null);
+    try {
+      const center = await geocodeAddress(mapsKey, address);
+      if (!center) {
+        setAutoGpsError("Non riesco a geocodificare l'indirizzo del progetto.");
+        return;
+      }
+      const missing = map.pois.filter((p) => typeof p.lat !== "number");
+      if (missing.length === 0) {
+        setAutoGpsError(null);
+        return;
+      }
+      let gridIdx = 0;
+      const nextPois = map.pois.map((p) => {
+        if (typeof p.lat === "number") return p;
+        let coord: { lat: number; lng: number };
+        if (
+          typeof p.planimetriaX === "number" &&
+          typeof p.planimetriaY === "number"
+        ) {
+          coord = planimetriaToLatLng(center, p.planimetriaX, p.planimetriaY);
+        } else {
+          coord = gridLatLng(center, gridIdx);
+          gridIdx++;
+        }
+        return { ...p, lat: coord.lat, lng: coord.lng };
+      });
+      persist({
+        ...map,
+        pois: nextPois,
+        centerLat: center.lat,
+        centerLng: center.lng,
+      });
+    } catch (e) {
+      setAutoGpsError(e instanceof Error ? e.message : "Errore.");
+    } finally {
+      setAutoGpsBusy(false);
+    }
+  };
 
   if (!loaded) return <div className="min-h-screen" />;
 
+  const hasPlanimetria = !!sources.planimetria?.image;
+  const luogoReady = map.pois.length >= 1;
+
+  const placedOnPlan = map.pois.filter(
+    (p) => typeof p.planimetriaX === "number",
+  ).length;
+  const placedOnGps = map.pois.filter((p) => typeof p.lat === "number").length;
+  const poisWithZone = map.pois.filter((p) => !!p.zoneId).length;
+  const poisWithImage = map.pois.filter((p) => !!p.image).length;
+  const poisWithDescription = map.pois.filter(
+    (p) => p.description.trim().length > 0,
+  ).length;
+
+  /* ========================== RENDER ========================== */
+
+  const showProposal = proposedPois !== null && proposedZones !== null;
+  const isReproposing = showProposal && map.pois.length > 0;
+
   return (
     <div className="min-h-screen flex flex-col">
-      {/* HEADER */}
-      <header className="shrink-0 px-6 md:px-10 pt-7 pb-5 border-b border-border/60">
-        <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground mb-1">
-          Step 3 · Luogo
-        </p>
+      <header className="shrink-0 px-6 md:px-10 pt-8 pb-6 border-b border-border/60">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">
+            <p className="text-[10px] uppercase tracking-[0.22em] text-muted-foreground mb-1">
+              Step 3 · Struttura del luogo
+            </p>
             <h1 className="font-heading text-3xl md:text-4xl italic leading-tight tracking-tight">
-              Struttura del luogo
+              Dove sono le cose
             </h1>
-            <p className="text-sm text-muted-foreground mt-2 max-w-xl leading-relaxed">
-              Organizza i punti di interesse e raggruppali in zone. La
-              planimetria è l&apos;autore primario; la georeferenziazione GPS è
-              opzionale e si aggancia prima della pubblicazione.
+            <p className="text-sm text-muted-foreground mt-3 max-w-xl leading-relaxed">
+              La mappa fisica del sito. L&apos;AI propone POI e zone dalle
+              fonti, tu confermi, rinomini, piazzi.
             </p>
           </div>
-          <div className="shrink-0 flex items-start gap-3">
+          <div className="flex items-center gap-2 shrink-0">
             {saved && (
-              <span className="inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-brand/15 text-brand text-xs font-medium">
-                <Check className="h-3 w-3" strokeWidth={2.5} />
+              <span className="inline-flex items-center gap-1.5 text-xs text-brand">
+                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
                 Salvato
               </span>
             )}
-            <div className="rounded-xl border border-border bg-card px-3 py-2 max-w-sm">
-              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground mb-0.5 flex items-center gap-1">
-                <Info className="h-3 w-3" strokeWidth={1.8} />
-                Modalità: {map.spatialMode}
-              </p>
-              <p className="text-xs text-muted-foreground leading-snug">
-                {SPATIAL_HINT[map.spatialMode]}
-              </p>
-            </div>
+            {map.pois.length > 0 && (
+              <button
+                type="button"
+                onClick={requestProposal}
+                disabled={!canPropose || proposing}
+                className={cn(
+                  "inline-flex items-center gap-1.5 h-10 px-4 rounded-full text-sm font-medium transition-colors",
+                  !canPropose || proposing
+                    ? "bg-muted text-muted-foreground cursor-not-allowed"
+                    : "border border-border text-foreground hover:bg-muted",
+                )}
+              >
+                {proposing ? (
+                  <>
+                    <Loader2
+                      className="h-4 w-4 animate-spin"
+                      strokeWidth={1.8}
+                    />
+                    Propongo…
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="h-4 w-4" strokeWidth={1.8} />
+                    Nuova proposta AI
+                  </>
+                )}
+              </button>
+            )}
           </div>
-        </div>
-
-        {/* VIEW TABS */}
-        <div className="mt-4 flex items-center gap-1 bg-muted rounded-full p-1 w-fit">
-          <button
-            type="button"
-            onClick={() => setView("planimetria")}
-            disabled={!hasPlanimetria}
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-4 rounded-full text-xs font-medium transition-colors",
-              view === "planimetria"
-                ? "bg-background text-foreground shadow-sm"
-                : !hasPlanimetria
-                  ? "text-muted-foreground/50 cursor-not-allowed"
-                  : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <ImageIcon className="h-3.5 w-3.5" strokeWidth={1.8} />
-            Planimetria
-            {hasPlanimetria && (
-              <span className="text-[10px] opacity-70 tabular-nums">
-                · {positionedOnPlan}/{map.pois.length}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("gps")}
-            className={cn(
-              "inline-flex items-center gap-1.5 h-8 px-4 rounded-full text-xs font-medium transition-colors",
-              view === "gps"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <MapIcon className="h-3.5 w-3.5" strokeWidth={1.8} />
-            Mappa GPS
-            <span className="text-[10px] opacity-70 tabular-nums">
-              · {placedGps}/{map.pois.length}
-            </span>
-          </button>
         </div>
       </header>
 
-      {/* MAIN */}
-      <main className="flex-1 flex flex-col lg:flex-row min-h-0 h-[calc(100vh-260px)]">
-        {/* LEFT — VIEW CANVAS */}
-        <section className="relative flex-1 bg-muted min-h-[480px]">
-          {view === "planimetria" && hasPlanimetria && (
-            <PlanimetriaCanvas
-              imageUrl={sources!.planimetria!}
-              pois={map.pois}
-              selectedId={selectedPoiId}
-              onSelect={setSelectedPoiId}
-              onMovePoi={(id, x, y) =>
-                updatePoi(id, { planimetriaX: x, planimetriaY: y })
-              }
-              onAddPoi={(x, y) => addPoi(x, y)}
+      <main className="flex-1 px-6 md:px-10 py-8 max-w-[1100px] w-full mx-auto space-y-6">
+        {proposalError && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/[0.04] p-4 flex items-start gap-3">
+            <AlertCircle
+              className="h-4 w-4 text-destructive shrink-0 mt-0.5"
+              strokeWidth={1.8}
             />
-          )}
-          {view === "planimetria" && !hasPlanimetria && (
-            <EmptyState
-              icon={<ImageIcon className="h-5 w-5" strokeWidth={1.8} />}
-              title="Nessuna planimetria caricata"
-              body="Torna nelle Fonti per caricare una planimetria, oppure usa la vista GPS."
-            />
-          )}
-          {view === "gps" && (
-            <GpsView
-              map={map}
-              sources={sources}
-              project={project}
-              persist={persist}
-              selectedPoiId={selectedPoiId}
-              setSelectedPoiId={setSelectedPoiId}
-              onOpenWizard={() => setShowGpsWizard(true)}
-            />
-          )}
-        </section>
+            <p className="text-xs text-muted-foreground">{proposalError}</p>
+          </div>
+        )}
 
-        {/* RIGHT — POI / ZONES PANEL */}
-        <aside className="lg:w-[380px] shrink-0 border-l border-border/60 bg-paper flex flex-col max-h-[70vh] lg:max-h-none">
-          <RightPanel
-            map={map}
-            selectedPoi={selectedPoi}
-            selectedPoiId={selectedPoiId}
-            onSelectPoi={setSelectedPoiId}
-            onUpdatePoi={updatePoi}
-            onRemovePoi={removePoi}
-            onAddPoi={() => addPoi()}
-            onAddZone={addZone}
-            onUpdateZone={updateZone}
-            onRemoveZone={removeZone}
-            onSuggestZones={suggestZones}
-            zoneBusy={zoneBusy}
-            zoneError={zoneError}
-            canSuggestZones={!!activeProvider}
+        {/* GATE: niente chiave o niente materiale */}
+        {!canPropose && map.pois.length === 0 && !proposing && (
+          <ProposalGate
+            hasLlmKey={hasLlmKey}
+            factsCount={approvedFacts.length}
+            hasBrief={!!brief?.obiettivo}
+            projectId={projectId}
           />
-        </aside>
+        )}
+
+        {/* SPINNER proposta iniziale */}
+        {proposing && map.pois.length === 0 && !showProposal && (
+          <div className="rounded-2xl border border-border bg-card p-10 flex flex-col items-center justify-center gap-4 text-center">
+            <div className="h-12 w-12 rounded-2xl bg-brand/10 flex items-center justify-center">
+              <Sparkles
+                className="h-5 w-5 text-brand animate-pulse"
+                strokeWidth={1.8}
+              />
+            </div>
+            <p className="font-heading text-xl italic">
+              L&apos;AI sta analizzando lo spazio…
+            </p>
+            <p className="text-sm text-muted-foreground max-w-md">
+              Legge planimetria, spunti, fatti KB e brief per proporti zone e
+              POI coerenti con le fonti.
+            </p>
+          </div>
+        )}
+
+        {/* PROPOSAL REVIEW PANEL */}
+        {showProposal && (
+          <ProposalReview
+            zones={proposedZones!}
+            pois={proposedPois!}
+            spatialMode={proposedSpatialMode}
+            isReproposing={isReproposing}
+            existingPoisCount={map.pois.length}
+            onTogglePoi={(id, approved) =>
+              setProposedPois((prev) =>
+                prev
+                  ? prev.map((p) => (p.id === id ? { ...p, approved } : p))
+                  : prev,
+              )
+            }
+            onRenamePoi={(id, name) =>
+              setProposedPois((prev) =>
+                prev
+                  ? prev.map((p) => (p.id === id ? { ...p, name } : p))
+                  : prev,
+              )
+            }
+            onEditPoiDescription={(id, description) =>
+              setProposedPois((prev) =>
+                prev
+                  ? prev.map((p) => (p.id === id ? { ...p, description } : p))
+                  : prev,
+              )
+            }
+            onAccept={acceptProposal}
+            onDiscard={discardProposal}
+          />
+        )}
+
+        {/* EDITOR */}
+        {map.pois.length > 0 && !showProposal && (
+          <>
+            <InvariantRuleBanner />
+
+            <ZonesPanel
+              zones={map.zones}
+              pois={map.pois}
+              onUpdateZone={updateZone}
+              onRemoveZone={removeZone}
+              onAddZone={addZone}
+            />
+
+            {/* Google Maps = superficie unica del Luogo */}
+            <GpsEditor
+              pois={map.pois}
+              zones={map.zones}
+              project={project}
+              onUpdatePoi={updatePoi}
+              onAssignToNext={(lat, lng) => {
+                const next = map.pois.find((p) => typeof p.lat !== "number");
+                if (next) updatePoi(next.id, { lat, lng });
+              }}
+              onAutoCompute={autoComputeGps}
+              autoComputeBusy={autoGpsBusy}
+              autoComputeError={autoGpsError}
+              missingCount={map.pois.length - placedOnGps}
+            />
+
+            <PoiList
+              pois={map.pois}
+              zones={map.zones}
+              project={project}
+              onUpdatePoi={updatePoi}
+              onRemovePoi={removePoi}
+              onAddPoi={() => addPoi()}
+            />
+
+            {placedOnGps < map.pois.length && (
+              <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
+                <AlertCircle
+                  className="h-4 w-4 text-amber-700 shrink-0 mt-0.5"
+                  strokeWidth={1.8}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-amber-900">
+                    {map.pois.length - placedOnGps} POI senza coordinate GPS
+                  </p>
+                  <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
+                    L&apos;app visitatore usa Google Maps: ogni POI serve
+                    lat/lng. Clicca &laquo;Calcola GPS automatico&raquo; oppure
+                    piazza manualmente sulla mappa.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <LuogoRecap
+              total={map.pois.length}
+              placedOnPlan={placedOnPlan}
+              placedOnGps={placedOnGps}
+              spatialMode={map.spatialMode}
+              hasPlanimetria={hasPlanimetria}
+              withZone={poisWithZone}
+              withImage={poisWithImage}
+              withDescription={poisWithDescription}
+              zonesCount={map.zones.length}
+            />
+          </>
+        )}
       </main>
 
       <footer className="shrink-0 border-t border-border/60 bg-paper">
-        <div className="max-w-[1200px] mx-auto px-6 py-5 flex items-center justify-between gap-4">
+        <div className="max-w-[1100px] mx-auto px-6 py-5 flex items-center justify-between gap-4">
           <Link
             href={`/progetti/${projectId}/brief`}
             className="inline-flex items-center gap-2 h-11 px-5 rounded-full text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
@@ -527,145 +667,251 @@ export default function LuogoStepPage({
             <ArrowLeft className="h-4 w-4" strokeWidth={1.8} />
             Brief
           </Link>
-          <p className="text-xs text-muted-foreground">
-            {map.pois.length} POI · {map.zones.length} zone
-            {placedGps > 0 && <> · {placedGps} georeferenziati</>}
-          </p>
-          <button
-            type="button"
-            onClick={() => setShowGpsWizard(true)}
-            disabled={!hasPlanimetria || positionedOnPlan < 2}
-            className={cn(
-              "inline-flex items-center gap-2 h-11 px-5 rounded-full text-sm font-medium transition-colors",
-              !hasPlanimetria || positionedOnPlan < 2
-                ? "bg-muted text-muted-foreground cursor-not-allowed"
-                : "border border-border text-foreground hover:bg-muted",
-            )}
-          >
-            <MapIcon className="h-4 w-4" strokeWidth={1.8} />
-            Georeferenzia con 2 ancore
-          </button>
+          {luogoReady ? (
+            <Link
+              href={`/progetti/${projectId}/driver`}
+              onClick={() => saveProgress(projectId, { currentStep: "luogo" })}
+              className="inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium bg-brand text-white hover:bg-brand/90 transition-colors shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
+            >
+              Vai a Driver e Personas
+              <ArrowLeft className="h-4 w-4 rotate-180" strokeWidth={2} />
+            </Link>
+          ) : (
+            <span className="inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium bg-muted text-muted-foreground">
+              Conferma almeno un POI
+            </span>
+          )}
         </div>
       </footer>
-
-      {showGpsWizard && hasPlanimetria && (
-        <GpsWizard
-          map={map}
-          planimetria={sources!.planimetria!}
-          mapsKey={keys?.googleMaps ?? ""}
-          project={project}
-          onClose={() => setShowGpsWizard(false)}
-          onFinish={(updatedMap) => {
-            persist(updatedMap);
-            setShowGpsWizard(false);
-          }}
-        />
-      )}
     </div>
   );
 }
 
-/* ============================================================ */
-/* ===================== PLANIMETRIA CANVAS ==================== */
-/* ============================================================ */
+/* ============================================================= */
+/* ======================= COMPONENTS ========================== */
+/* ============================================================= */
 
-function PlanimetriaCanvas({
-  imageUrl,
-  pois,
-  selectedId,
-  onSelect,
-  onMovePoi,
-  onAddPoi,
+function SpatialModePanel({
+  value,
+  onChange,
 }: {
-  imageUrl: string;
-  pois: MapPoi[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  onMovePoi: (id: string, x: number, y: number) => void;
-  onAddPoi: (x: number, y: number) => void;
+  value: SpatialMode;
+  onChange: (v: SpatialMode) => void;
 }) {
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-
-  const getCoords = (e: React.PointerEvent) => {
-    if (!wrapperRef.current) return null;
-    const rect = wrapperRef.current.getBoundingClientRect();
-    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
-    return { x, y };
-  };
-
-  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!draggingId) return;
-    const c = getCoords(e);
-    if (c) onMovePoi(draggingId, c.x, c.y);
-  };
-
-  const endDrag = () => setDraggingId(null);
-
-  const onCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!wrapperRef.current || draggingId) return;
-    // Click solo se non su un POI esistente (stopPropagation sui pin)
-    const rect = wrapperRef.current.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    const y = (e.clientY - rect.top) / rect.height;
-    onAddPoi(x, y);
-  };
-
+  const options: { value: SpatialMode; label: string; hint: string }[] = [
+    {
+      value: "indoor",
+      label: "Planimetria interna",
+      hint: "Musei, palazzi, ville, ambienti chiusi",
+    },
+    {
+      value: "gps",
+      label: "GPS",
+      hint: "Parchi, percorsi urbani, territori all'aperto",
+    },
+    {
+      value: "hybrid",
+      label: "Ibrida",
+      hint: "Sia esterni sia interni (es. forti con ortofoto + ambienti)",
+    },
+  ];
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-6 bg-[#E6DFD0] overflow-auto">
-      <div
-        ref={wrapperRef}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onClick={onCanvasClick}
-        className="relative inline-block select-none cursor-crosshair"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt="Planimetria"
-          draggable={false}
-          className="block max-h-[calc(100vh-340px)] max-w-full object-contain pointer-events-none shadow-md"
-        />
-        {pois.map((p, i) => {
-          if (
-            typeof p.planimetriaX !== "number" ||
-            typeof p.planimetriaY !== "number"
-          )
-            return null;
-          const isSelected = selectedId === p.id;
-          return (
-            <button
-              type="button"
-              key={p.id}
-              onPointerDown={(e) => {
-                e.stopPropagation();
-                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-                setDraggingId(p.id);
-                onSelect(p.id);
-              }}
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelect(p.id);
-              }}
-              style={{
-                left: `${p.planimetriaX * 100}%`,
-                top: `${p.planimetriaY * 100}%`,
-                touchAction: "none",
-              }}
+    <div className="rounded-2xl border border-border bg-card p-5">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium mb-3">
+        Modalità spaziale
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "text-left rounded-xl border px-3 py-3 transition-colors",
+              value === o.value
+                ? "border-foreground bg-foreground text-background"
+                : "border-border text-foreground hover:border-foreground/40",
+            )}
+          >
+            <p className="text-sm font-medium">{o.label}</p>
+            <p
               className={cn(
-                "absolute -translate-x-1/2 -translate-y-1/2 h-8 w-8 rounded-full text-white text-[11px] font-bold flex items-center justify-center ring-2 ring-white shadow-[0_2px_6px_rgba(0,0,0,0.25)] transition-transform",
-                draggingId === p.id
-                  ? "scale-125 cursor-grabbing"
-                  : isSelected
-                    ? "bg-brand scale-125 cursor-grab"
-                    : "bg-foreground cursor-grab hover:scale-110",
+                "text-[11px] mt-0.5 leading-snug",
+                value === o.value
+                  ? "text-background/70"
+                  : "text-muted-foreground",
               )}
             >
-              {p.fromPlanimetriaN ?? i + 1}
-            </button>
+              {o.hint}
+            </p>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HybridSplitHint({
+  indoor,
+  outdoor,
+  untyped,
+}: {
+  indoor: number;
+  outdoor: number;
+  untyped: number;
+}) {
+  return (
+    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4 flex items-start gap-3">
+      <Info
+        className="h-4 w-4 text-sky-700 shrink-0 mt-0.5"
+        strokeWidth={1.8}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-sky-900">
+          Modalità ibrida — divisione interno / esterno
+        </p>
+        <p className="text-xs text-sky-900/80 mt-1 leading-relaxed">
+          I punti con tipo <strong>Interno</strong> si piazzano sulla
+          planimetria. Quelli con tipo <strong>Esterno</strong> su Google Maps.
+          Imposti il tipo di ogni punto dalla lista qui sotto.
+        </p>
+        <p className="text-[11px] text-sky-900/70 mt-2">
+          {indoor} interni · {outdoor} esterni
+          {untyped > 0 && (
+            <>
+              {" · "}
+              <span className="text-amber-700 font-medium">
+                {untyped} da tipizzare
+              </span>
+            </>
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function InvariantRuleBanner() {
+  return (
+    <div className="rounded-2xl border border-border bg-muted/30 p-4 flex items-start gap-3">
+      <Info
+        className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5"
+        strokeWidth={1.8}
+      />
+      <p className="text-xs text-muted-foreground leading-relaxed">
+        Lo spazio guida il racconto. I percorsi che creerai dovranno rispettare
+        dove si trovano davvero le cose: niente salti attraverso muri o ritorni
+        indietro senza motivo.
+      </p>
+    </div>
+  );
+}
+
+function LuogoRecap({
+  total,
+  placedOnPlan,
+  placedOnGps,
+  spatialMode,
+  hasPlanimetria,
+  withZone,
+  withImage,
+  withDescription,
+  zonesCount,
+}: {
+  total: number;
+  placedOnPlan: number;
+  placedOnGps: number;
+  spatialMode: SpatialMode;
+  hasPlanimetria: boolean;
+  withZone: number;
+  withImage: number;
+  withDescription: number;
+  zonesCount: number;
+}) {
+  const dimensions: {
+    label: string;
+    filled: number;
+    total: number;
+    hint: string;
+  }[] = [
+    {
+      label: "Posizione GPS",
+      filled: placedOnGps,
+      total,
+      hint: "Lat/lng per l'app visitatore su Google Maps",
+    },
+    {
+      label: "Zona assegnata",
+      filled: withZone,
+      total,
+      hint: "Ogni punto appartiene a una zona narrativa",
+    },
+    {
+      label: "Descrizione breve",
+      filled: withDescription,
+      total,
+      hint: "Testo di contesto per il visitatore",
+    },
+    {
+      label: "Foto",
+      filled: withImage,
+      total,
+      hint: "Sfondo della scheda nell'app",
+    },
+  ];
+
+  const avgPct =
+    dimensions.length > 0
+      ? Math.round(
+          (dimensions.reduce((acc, d) => acc + d.filled / d.total, 0) /
+            dimensions.length) *
+            100,
+        )
+      : 0;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-4 border-b border-border/60 flex items-baseline justify-between gap-4">
+        <p className="text-sm font-medium">Completamento del Luogo</p>
+        <div className="flex items-baseline gap-3">
+          <span className="font-heading italic text-2xl tabular-nums">
+            {avgPct}%
+          </span>
+          <span className="text-[11px] text-muted-foreground">
+            {total} punti · {zonesCount} zone
+          </span>
+        </div>
+      </div>
+      <div className="divide-y divide-border/60">
+        {dimensions.map((d) => {
+          const pct = d.total > 0 ? Math.round((d.filled / d.total) * 100) : 0;
+          return (
+            <div key={d.label} className="px-5 py-3 flex items-center gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">{d.label}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+                  {d.hint}
+                </p>
+              </div>
+              <div className="w-40 shrink-0">
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={cn(
+                      "h-full rounded-full transition-all",
+                      pct === 100
+                        ? "bg-brand"
+                        : pct >= 50
+                          ? "bg-amber-400"
+                          : "bg-muted-foreground/40",
+                    )}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+              <span className="text-xs tabular-nums w-14 text-right text-muted-foreground">
+                {d.filled}/{d.total}
+              </span>
+            </div>
           );
         })}
       </div>
@@ -673,957 +919,1178 @@ function PlanimetriaCanvas({
   );
 }
 
-/* ============================================================ */
-/* ====================== GPS VIEW ============================ */
-/* ============================================================ */
-
-function GpsView({
-  map,
-  sources,
-  project,
-  persist,
-  selectedPoiId,
-  setSelectedPoiId,
-  onOpenWizard,
+function ProposalGate({
+  hasLlmKey,
+  factsCount,
+  hasBrief,
+  projectId,
 }: {
-  map: ProjectMap;
-  sources: ProjectSources | null;
-  project: StoredProject | null;
-  persist: (next: ProjectMap) => void;
-  selectedPoiId: string | null;
-  setSelectedPoiId: (id: string | null) => void;
-  onOpenWizard: () => void;
+  hasLlmKey: boolean;
+  factsCount: number;
+  hasBrief: boolean;
+  projectId: string;
 }) {
-  const mapDivRef = useRef<HTMLDivElement>(null);
-  const mapInstRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
-  const mapStateRef = useRef(map);
-  const selectedRef = useRef(selectedPoiId);
-  useEffect(() => {
-    mapStateRef.current = map;
-  }, [map]);
-  useEffect(() => {
-    selectedRef.current = selectedPoiId;
-  }, [selectedPoiId]);
-
-  const mapsKey = typeof window !== "undefined" ? loadApiKeys().googleMaps : "";
-  const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Geocode center
-  useEffect(() => {
-    if (!mapsKey) return;
-    if (map.centerLat && map.centerLng) return;
-    const addr = project?.address;
-    if (!addr) return;
-    geocodeAddress(mapsKey, addr).then((coords) => {
-      if (coords) {
-        persist({
-          ...mapStateRef.current,
-          centerLat: coords.lat,
-          centerLng: coords.lng,
-        });
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapsKey, project?.address]);
-
-  useEffect(() => {
-    if (!mapsKey || mapInstRef.current || !mapDivRef.current) return;
-    let cancelled = false;
-    loadGoogleMaps(mapsKey)
-      .then((maps) => {
-        if (cancelled || !mapDivRef.current) return;
-        const center =
-          map.centerLat && map.centerLng
-            ? { lat: map.centerLat, lng: map.centerLng }
-            : DEFAULT_CENTER;
-        const gm = new maps.Map(mapDivRef.current, {
-          center,
-          zoom: 18,
-          mapTypeId: "hybrid",
-          streetViewControl: false,
-          mapTypeControl: true,
-          fullscreenControl: false,
-          clickableIcons: false,
-        });
-        mapInstRef.current = gm;
-        gm.addListener("click", (e: google.maps.MapMouseEvent) => {
-          if (!e.latLng) return;
-          const sid = selectedRef.current;
-          if (!sid) return;
-          const current = mapStateRef.current;
-          const next = {
-            ...current,
-            pois: current.pois.map((x) =>
-              x.id === sid
-                ? { ...x, lat: e.latLng!.lat(), lng: e.latLng!.lng() }
-                : x,
-            ),
-          };
-          persist(next);
-        });
-        setReady(true);
-      })
-      .catch(() => {
-        if (!cancelled) setError("Errore caricamento Google Maps.");
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapsKey]);
-
-  useEffect(() => {
-    if (!mapInstRef.current || !ready) return;
-    if (map.centerLat && map.centerLng) {
-      mapInstRef.current.setCenter({
-        lat: map.centerLat,
-        lng: map.centerLng,
-      });
-    }
-  }, [map.centerLat, map.centerLng, ready]);
-
-  useEffect(() => {
-    if (!mapInstRef.current || !ready || !window.google) return;
-    const gm = mapInstRef.current;
-    const currentIds = new Set(map.pois.map((p) => p.id));
-    for (const [id, marker] of markersRef.current.entries()) {
-      if (!currentIds.has(id)) {
-        marker.setMap(null);
-        markersRef.current.delete(id);
-      }
-    }
-    map.pois.forEach((p, idx) => {
-      if (typeof p.lat !== "number" || typeof p.lng !== "number") {
-        const m = markersRef.current.get(p.id);
-        if (m) {
-          m.setMap(null);
-          markersRef.current.delete(p.id);
-        }
-        return;
-      }
-      const selected = selectedPoiId === p.id;
-      const icon: google.maps.Symbol = {
-        path: window.google.maps.SymbolPath.CIRCLE,
-        scale: selected ? 16 : 13,
-        fillColor: selected ? "#A45B2A" : "#2A2623",
-        fillOpacity: 1,
-        strokeColor: "#fff",
-        strokeWeight: 2,
-      };
-      const label = {
-        text: String(idx + 1),
-        color: "#fff",
-        fontSize: "12px",
-        fontWeight: "700",
-      };
-      const existing = markersRef.current.get(p.id);
-      if (existing) {
-        existing.setPosition({ lat: p.lat, lng: p.lng });
-        existing.setIcon(icon);
-        existing.setLabel(label);
-      } else {
-        const mk = new window.google.maps.Marker({
-          position: { lat: p.lat, lng: p.lng },
-          map: gm,
-          draggable: true,
-          label,
-          icon,
-          title: p.name,
-        });
-        mk.addListener("click", () => setSelectedPoiId(p.id));
-        mk.addListener("dragend", (e: google.maps.MapMouseEvent) => {
-          if (!e.latLng) return;
-          const current = mapStateRef.current;
-          const next = {
-            ...current,
-            pois: current.pois.map((x) =>
-              x.id === p.id
-                ? { ...x, lat: e.latLng!.lat(), lng: e.latLng!.lng() }
-                : x,
-            ),
-          };
-          persist(next);
-        });
-        markersRef.current.set(p.id, mk);
-      }
-    });
-  }, [map.pois, ready, selectedPoiId, persist, setSelectedPoiId]);
-
-  const selected = map.pois.find((p) => p.id === selectedPoiId);
-  const hasPlan = !!sources?.planimetria;
-  const positionedOnPlan = map.pois.filter(
-    (p) => typeof p.planimetriaX === "number",
-  ).length;
-
-  if (!mapsKey) {
-    return (
-      <EmptyState
-        icon={<AlertCircle className="h-5 w-5" strokeWidth={1.8} />}
-        title="Chiave Google Maps mancante"
-        body="Apri Impostazioni → Chiavi API e salva la chiave Google Maps."
-      />
-    );
-  }
-  if (error) {
-    return (
-      <EmptyState
-        icon={<AlertCircle className="h-5 w-5" strokeWidth={1.8} />}
-        title="Mappa non disponibile"
-        body={error}
-      />
-    );
-  }
-
   return (
-    <>
-      <div ref={mapDivRef} className="absolute inset-0" />
-      {!ready && (
-        <div className="absolute inset-0 flex items-center justify-center gap-2 text-muted-foreground bg-muted">
-          <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
-          <span className="text-xs">Carico la mappa…</span>
-        </div>
-      )}
-      {ready && selected && typeof selected.lat !== "number" && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-brand text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg inline-flex items-center gap-2 pointer-events-none">
-          <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
-          Click sulla mappa per piantare &quot;{selected.name}&quot;
-        </div>
-      )}
-      {ready && hasPlan && positionedOnPlan >= 2 && (
-        <button
-          type="button"
-          onClick={onOpenWizard}
-          className="absolute top-4 right-4 inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-foreground text-background text-xs font-medium hover:bg-foreground/90 transition-colors shadow-lg"
-        >
-          <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
-          Auto-piazza da planimetria (2 ancore)
-        </button>
-      )}
-    </>
-  );
-}
-
-/* ============================================================ */
-/* ======================= RIGHT PANEL ======================== */
-/* ============================================================ */
-
-function RightPanel({
-  map,
-  selectedPoi,
-  selectedPoiId,
-  onSelectPoi,
-  onUpdatePoi,
-  onRemovePoi,
-  onAddPoi,
-  onAddZone,
-  onUpdateZone,
-  onRemoveZone,
-  onSuggestZones,
-  zoneBusy,
-  zoneError,
-  canSuggestZones,
-}: {
-  map: ProjectMap;
-  selectedPoi: MapPoi | null;
-  selectedPoiId: string | null;
-  onSelectPoi: (id: string | null) => void;
-  onUpdatePoi: (id: string, patch: Partial<MapPoi>) => void;
-  onRemovePoi: (id: string) => void;
-  onAddPoi: () => void;
-  onAddZone: () => void;
-  onUpdateZone: (id: string, patch: Partial<MapZone>) => void;
-  onRemoveZone: (id: string) => void;
-  onSuggestZones: () => void;
-  zoneBusy: boolean;
-  zoneError: string | null;
-  canSuggestZones: boolean;
-}) {
-  const [tab, setTab] = useState<"pois" | "zones">("pois");
-
-  return (
-    <>
-      <div className="px-5 pt-4 pb-2 border-b border-border/60 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1 bg-muted rounded-full p-1 w-fit">
-          <button
-            type="button"
-            onClick={() => setTab("pois")}
-            className={cn(
-              "h-7 px-3 rounded-full text-[11px] font-medium transition-colors",
-              tab === "pois"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            POI {map.pois.length}
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("zones")}
-            className={cn(
-              "h-7 px-3 rounded-full text-[11px] font-medium transition-colors",
-              tab === "zones"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Zone {map.zones.length}
-          </button>
-        </div>
+    <div className="rounded-2xl border border-border bg-card p-10 text-center space-y-4">
+      <div className="h-14 w-14 rounded-2xl bg-muted mx-auto flex items-center justify-center">
+        <MapPin className="h-6 w-6 text-foreground" strokeWidth={1.6} />
       </div>
-
-      {tab === "pois" && (
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-          {map.pois.length === 0 ? (
-            <div className="text-center py-10 px-4 space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Nessun POI. Torna alle Fonti per caricare una planimetria o
-                aggiungi manualmente.
-              </p>
-              <button
-                type="button"
-                onClick={onAddPoi}
-                className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full bg-foreground text-background text-xs font-medium hover:bg-foreground/90"
-              >
-                <Plus className="h-3.5 w-3.5" strokeWidth={2} />
-                Aggiungi POI
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center justify-between px-2 pb-1">
-                <p className="text-[11px] text-muted-foreground">
-                  {selectedPoi
-                    ? `Selezionato: ${selectedPoi.name}`
-                    : "Click su un POI per modificarlo"}
-                </p>
-                <button
-                  type="button"
-                  onClick={onAddPoi}
-                  className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium text-foreground hover:bg-muted"
-                >
-                  <Plus className="h-3 w-3" strokeWidth={2} />
-                  Aggiungi
-                </button>
-              </div>
-              {map.pois.map((p, i) => {
-                const selected = selectedPoiId === p.id;
-                const placedGps =
-                  typeof p.lat === "number" && typeof p.lng === "number";
-                const positionedPlan = typeof p.planimetriaX === "number";
-                const zone = map.zones.find((z) => z.id === p.zoneId);
-                return (
-                  <div
-                    key={p.id}
-                    onClick={() => onSelectPoi(p.id)}
-                    className={cn(
-                      "group rounded-xl border bg-card p-3 transition-all cursor-pointer",
-                      selected
-                        ? "border-brand shadow-[0_2px_8px_rgba(164,91,42,0.15)]"
-                        : "border-border hover:border-foreground/40",
-                    )}
-                  >
-                    <div className="flex items-start gap-2">
-                      <span
-                        className={cn(
-                          "shrink-0 h-7 w-7 rounded-full text-xs font-bold flex items-center justify-center mt-0.5",
-                          selected
-                            ? "bg-brand text-white"
-                            : positionedPlan
-                              ? "bg-foreground text-background"
-                              : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {i + 1}
-                      </span>
-                      <div className="flex-1 min-w-0 space-y-1.5">
-                        <input
-                          value={p.name}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) =>
-                            onUpdatePoi(p.id, { name: e.target.value })
-                          }
-                          className="w-full text-sm font-medium bg-transparent focus:outline-none"
-                        />
-                        <textarea
-                          value={p.description}
-                          onClick={(e) => e.stopPropagation()}
-                          onChange={(e) =>
-                            onUpdatePoi(p.id, { description: e.target.value })
-                          }
-                          rows={2}
-                          placeholder="Descrizione"
-                          className="w-full text-xs text-muted-foreground bg-transparent focus:outline-none resize-none leading-relaxed"
-                        />
-                        <div className="flex items-center gap-2 flex-wrap pt-0.5">
-                          {positionedPlan && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
-                              <ImageIcon className="h-3 w-3" strokeWidth={2} />
-                              Planimetria
-                            </span>
-                          )}
-                          {placedGps && (
-                            <span className="inline-flex items-center gap-1 text-[10px] text-brand font-medium">
-                              <Check className="h-3 w-3" strokeWidth={2.5} />
-                              GPS
-                            </span>
-                          )}
-                          {zone && (
-                            <span className="inline-flex items-center h-4 px-1.5 rounded-full text-[9px] bg-muted text-muted-foreground">
-                              {zone.name}
-                            </span>
-                          )}
-                        </div>
-                        {selected && (
-                          <div
-                            onClick={(e) => e.stopPropagation()}
-                            className="pt-2 space-y-2 border-t border-border/60"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Clock
-                                className="h-3 w-3 text-muted-foreground shrink-0"
-                                strokeWidth={1.8}
-                              />
-                              <span className="text-[11px] text-muted-foreground">
-                                Tempo sosta:
-                              </span>
-                              <input
-                                type="number"
-                                min={0}
-                                max={3600}
-                                step={30}
-                                value={p.minStaySeconds ?? 0}
-                                onChange={(e) =>
-                                  onUpdatePoi(p.id, {
-                                    minStaySeconds:
-                                      parseInt(e.target.value, 10) || 0,
-                                  })
-                                }
-                                className="w-16 h-6 text-[11px] text-right rounded border border-border bg-card px-1 focus:outline-none focus:ring-1 focus:ring-foreground/30"
-                              />
-                              <span className="text-[11px] text-muted-foreground">
-                                sec
-                              </span>
-                            </div>
-                            {map.zones.length > 0 && (
-                              <select
-                                value={p.zoneId ?? ""}
-                                onChange={(e) =>
-                                  onUpdatePoi(p.id, {
-                                    zoneId: e.target.value || undefined,
-                                  })
-                                }
-                                className="h-7 w-full text-[11px] rounded border border-border bg-card px-2 focus:outline-none focus:ring-1 focus:ring-foreground/30"
-                              >
-                                <option value="">— Nessuna zona —</option>
-                                {map.zones.map((z) => (
-                                  <option key={z.id} value={z.id}>
-                                    {z.name}
-                                  </option>
-                                ))}
-                              </select>
-                            )}
-                            {placedGps && (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  onUpdatePoi(p.id, {
-                                    lat: undefined,
-                                    lng: undefined,
-                                  })
-                                }
-                                className="text-[10px] text-muted-foreground hover:text-destructive"
-                              >
-                                Rimuovi GPS
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onRemovePoi(p.id);
-                        }}
-                        aria-label="Rimuovi"
-                        className="shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </>
-          )}
-        </div>
-      )}
-
-      {tab === "zones" && (
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
-          <div className="flex items-center justify-between px-2 gap-2">
-            <p className="text-[11px] text-muted-foreground">
-              {map.zones.length} zone narrative
-            </p>
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={onSuggestZones}
-                disabled={zoneBusy || !canSuggestZones || map.pois.length < 2}
-                className={cn(
-                  "inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium transition-colors",
-                  zoneBusy || !canSuggestZones || map.pois.length < 2
-                    ? "bg-muted text-muted-foreground cursor-not-allowed"
-                    : "bg-foreground text-background hover:bg-foreground/90",
-                )}
-              >
-                {zoneBusy ? (
-                  <>
-                    <Loader2
-                      className="h-3 w-3 animate-spin"
-                      strokeWidth={1.8}
-                    />
-                    Propongo
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="h-3 w-3" strokeWidth={1.8} />
-                    Proponi con AI
-                  </>
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={onAddZone}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium text-foreground hover:bg-muted"
-              >
-                <Plus className="h-3 w-3" strokeWidth={2} />
-                Aggiungi
-              </button>
-            </div>
-          </div>
-          {zoneError && (
-            <div className="mx-2 rounded-xl border border-destructive/30 bg-destructive/[0.03] p-2 flex items-start gap-2">
-              <AlertCircle
-                className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5"
-                strokeWidth={1.8}
-              />
-              <p className="text-[11px] text-muted-foreground">{zoneError}</p>
-            </div>
-          )}
-          {map.zones.length > 0 &&
-            map.pois.filter((p) => !p.zoneId).length > 0 && (
-              <div className="mx-2 rounded-xl border border-amber-300 bg-amber-50 p-2 flex items-start gap-2">
-                <AlertCircle
-                  className="h-3.5 w-3.5 text-amber-700 shrink-0 mt-0.5"
-                  strokeWidth={1.8}
-                />
-                <p className="text-[11px] text-amber-900 leading-snug">
-                  {map.pois.filter((p) => !p.zoneId).length} POI senza zona —
-                  riproponi con AI o assegnali manualmente.
-                </p>
-              </div>
-            )}
-          {map.zones.length === 0 ? (
-            <div className="text-center py-10 px-4">
-              <p className="text-sm text-muted-foreground">
-                Nessuna zona. Click &quot;Proponi con AI&quot; per generarle dai
-                POI.
-              </p>
-            </div>
-          ) : (
-            map.zones.map((z) => {
-              const fn = ZONE_FUNCTIONS.find((f) => f.value === z.function);
-              const poisInZone = map.pois.filter((p) => p.zoneId === z.id);
-              return (
-                <div
-                  key={z.id}
-                  className="rounded-xl border border-border bg-card p-3 space-y-2"
-                >
-                  <div className="flex items-start gap-2">
-                    <div className="flex-1 min-w-0 space-y-1.5">
-                      <input
-                        value={z.name}
-                        onChange={(e) =>
-                          onUpdateZone(z.id, { name: e.target.value })
-                        }
-                        className="w-full text-sm font-medium bg-transparent focus:outline-none"
-                      />
-                      <textarea
-                        value={z.narrativePromise}
-                        onChange={(e) =>
-                          onUpdateZone(z.id, {
-                            narrativePromise: e.target.value,
-                          })
-                        }
-                        rows={2}
-                        placeholder="Promessa narrativa"
-                        className="w-full text-xs text-muted-foreground bg-transparent focus:outline-none resize-none leading-relaxed"
-                      />
-                      <div className="flex items-center flex-wrap gap-1">
-                        {ZONE_FUNCTIONS.map((f) => (
-                          <button
-                            key={f.value}
-                            type="button"
-                            onClick={() =>
-                              onUpdateZone(z.id, { function: f.value })
-                            }
-                            className={cn(
-                              "inline-flex items-center h-5 px-2 rounded-full text-[10px] font-medium border transition-colors",
-                              z.function === f.value
-                                ? f.color + " border-current"
-                                : "border-border text-muted-foreground hover:text-foreground",
-                            )}
-                          >
-                            {f.label}
-                          </button>
-                        ))}
-                      </div>
-                      {poisInZone.length > 0 && (
-                        <div className="pt-2 border-t border-border/60">
-                          <p className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1">
-                            {poisInZone.length} POI
-                          </p>
-                          <ul className="flex flex-wrap gap-1">
-                            {poisInZone.map((p) => (
-                              <li
-                                key={p.id}
-                                className="inline-flex items-center h-5 px-2 rounded-full text-[10px] bg-muted text-foreground"
-                              >
-                                {p.name}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onRemoveZone(z.id)}
-                      aria-label="Rimuovi zona"
-                      className="shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
-                    </button>
-                  </div>
-                  <span
-                    className={cn(
-                      "inline-flex items-center h-5 px-2 rounded-full text-[10px] font-medium border",
-                      fn?.color,
-                    )}
-                  >
-                    Funzione: {fn?.label}
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
-      )}
-    </>
-  );
-}
-
-/* ============================================================ */
-/* ======================== GPS WIZARD ======================== */
-/* ============================================================ */
-
-function GpsWizard({
-  map,
-  planimetria,
-  mapsKey,
-  project,
-  onClose,
-  onFinish,
-}: {
-  map: ProjectMap;
-  planimetria: string;
-  mapsKey: string;
-  project: StoredProject | null;
-  onClose: () => void;
-  onFinish: (updatedMap: ProjectMap) => void;
-}) {
-  type Step = "pickPlan1" | "pickGps1" | "pickPlan2" | "pickGps2";
-  const [step, setStep] = useState<Step>("pickPlan1");
-  const [anchor1, setAnchor1] = useState<{
-    poiId?: string;
-    planX?: number;
-    planY?: number;
-    lat?: number;
-    lng?: number;
-  }>({});
-  const [anchor2, setAnchor2] = useState<{
-    poiId?: string;
-    planX?: number;
-    planY?: number;
-    lat?: number;
-    lng?: number;
-  }>({});
-
-  const poisOnPlan = map.pois.filter((p) => typeof p.planimetriaX === "number");
-
-  const mapDivRef = useRef<HTMLDivElement>(null);
-  const mapInstRef = useRef<google.maps.Map | null>(null);
-  const onGpsClickRef = useRef<(lat: number, lng: number) => void>(() => {});
-  const [ready, setReady] = useState(false);
-
-  const currentStepIsGps = step === "pickGps1" || step === "pickGps2";
-
-  useEffect(() => {
-    if (!mapsKey || mapInstRef.current || !mapDivRef.current) return;
-    loadGoogleMaps(mapsKey).then(async (maps) => {
-      if (!mapDivRef.current) return;
-      let center =
-        map.centerLat && map.centerLng
-          ? { lat: map.centerLat, lng: map.centerLng }
-          : DEFAULT_CENTER;
-      if (!map.centerLat && project?.address) {
-        const c = await geocodeAddress(mapsKey, project.address);
-        if (c) center = c;
-      }
-      const gm = new maps.Map(mapDivRef.current, {
-        center,
-        zoom: 18,
-        mapTypeId: "hybrid",
-        streetViewControl: false,
-        mapTypeControl: true,
-        fullscreenControl: false,
-        clickableIcons: false,
-      });
-      mapInstRef.current = gm;
-      gm.addListener("click", (e: google.maps.MapMouseEvent) => {
-        if (!e.latLng) return;
-        onGpsClickRef.current(e.latLng.lat(), e.latLng.lng());
-      });
-      setReady(true);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapsKey]);
-
-  const finalize = (second: typeof anchor2) => {
-    if (
-      typeof anchor1.planX !== "number" ||
-      typeof anchor1.planY !== "number" ||
-      typeof anchor1.lat !== "number" ||
-      typeof anchor1.lng !== "number" ||
-      typeof second.planX !== "number" ||
-      typeof second.planY !== "number" ||
-      typeof second.lat !== "number" ||
-      typeof second.lng !== "number"
-    )
-      return;
-    const params = affineFrom2Anchors(
-      {
-        planX: anchor1.planX,
-        planY: anchor1.planY,
-        lat: anchor1.lat,
-        lng: anchor1.lng,
-      },
-      {
-        planX: second.planX,
-        planY: second.planY,
-        lat: second.lat,
-        lng: second.lng,
-      },
-    );
-    if (!params) {
-      onClose();
-      return;
-    }
-    const nextPois = map.pois.map((p) => {
-      if (
-        typeof p.planimetriaX !== "number" ||
-        typeof p.planimetriaY !== "number"
-      )
-        return p;
-      const { lat, lng } = applyAffine(params, p.planimetriaX, p.planimetriaY);
-      return { ...p, lat, lng };
-    });
-    const anchors = [anchor1, second].map((a) => ({
-      poiId: a.poiId!,
-      planimetriaX: a.planX!,
-      planimetriaY: a.planY!,
-      lat: a.lat!,
-      lng: a.lng!,
-    }));
-    onFinish({ ...map, pois: nextPois, anchors });
-  };
-
-  const onGpsClick = (lat: number, lng: number) => {
-    if (step === "pickGps1") {
-      setAnchor1((a) => ({ ...a, lat, lng }));
-      setStep("pickPlan2");
-    } else if (step === "pickGps2") {
-      setAnchor2((a) => ({ ...a, lat, lng }));
-      finalize({ ...anchor2, lat, lng });
-    }
-  };
-
-  useEffect(() => {
-    onGpsClickRef.current = onGpsClick;
-  });
-
-  const onPickPoi = (poiId: string) => {
-    const poi = map.pois.find((p) => p.id === poiId);
-    if (!poi || typeof poi.planimetriaX !== "number") return;
-    if (step === "pickPlan1") {
-      if (anchor2.poiId === poiId) return;
-      setAnchor1({
-        poiId,
-        planX: poi.planimetriaX,
-        planY: poi.planimetriaY,
-      });
-      setStep("pickGps1");
-    } else if (step === "pickPlan2") {
-      if (anchor1.poiId === poiId) return;
-      setAnchor2({
-        poiId,
-        planX: poi.planimetriaX,
-        planY: poi.planimetriaY,
-      });
-      setStep("pickGps2");
-    }
-  };
-
-  const titles: Record<Step, { title: string; sub: string }> = {
-    pickPlan1: {
-      title: "Ancora 1 · Scegli un POI sulla planimetria",
-      sub: "Clicca un punto ben riconoscibile (es. ingresso, torre).",
-    },
-    pickGps1: {
-      title: "Ancora 1 · Click sulla mappa reale",
-      sub: "Clicca sulla posizione corrispondente al POI appena scelto.",
-    },
-    pickPlan2: {
-      title: "Ancora 2 · Scegli un secondo POI sulla planimetria",
-      sub: "Scegli un punto lontano dal primo (angolo opposto se possibile).",
-    },
-    pickGps2: {
-      title: "Ancora 2 · Click sulla mappa reale",
-      sub: "Ultimo click: distribuisco tutti i POI automaticamente.",
-    },
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 flex items-stretch">
-      <div className="bg-paper flex-1 flex flex-col">
-        <header className="shrink-0 border-b border-border/60 px-6 py-4 bg-brand text-white flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.18em] opacity-80 mb-1">
-              Georeferenzia · {stepNumber(step)}/4
-            </p>
-            <p className="font-medium text-sm">{titles[step].title}</p>
-            <p className="text-xs opacity-90 mt-0.5 leading-relaxed">
-              {titles[step].sub}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex items-center gap-1 h-8 px-3 rounded-full bg-white/20 text-white text-xs font-medium hover:bg-white/30 shrink-0"
+      <p className="font-heading text-2xl italic">Serve materiale</p>
+      <p className="text-sm text-muted-foreground max-w-md mx-auto leading-relaxed">
+        {!hasLlmKey
+          ? "Configura la chiave LLM in Impostazioni."
+          : factsCount < 5
+            ? "Torna alle Fonti e approva almeno 5 fatti nella Knowledge Base prima di costruire il luogo."
+            : !hasBrief
+              ? "Compila il Brief prima di modellare lo spazio: serve la direzione editoriale per proporre zone coerenti."
+              : "Non abbiamo abbastanza materiale per proporre una modellazione."}
+      </p>
+      <div className="flex items-center justify-center gap-2">
+        <Link
+          href={`/progetti/${projectId}/fonti`}
+          className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-border text-xs font-medium hover:bg-muted transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.8} />
+          Torna alle Fonti
+        </Link>
+        {hasLlmKey && factsCount >= 5 && (
+          <Link
+            href={`/progetti/${projectId}/brief`}
+            className="inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-border text-xs font-medium hover:bg-muted transition-colors"
           >
-            <X className="h-3.5 w-3.5" strokeWidth={2} />
-            Chiudi
-          </button>
-        </header>
-
-        <div className="flex-1 flex min-h-0">
-          {/* Planimetria */}
-          <div className="flex-1 bg-[#E6DFD0] p-4 overflow-auto border-r border-border/60">
-            <div className="relative inline-block mx-auto">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={planimetria}
-                alt="Planimetria"
-                draggable={false}
-                className="block max-h-[calc(100vh-180px)] max-w-full object-contain shadow-md"
-              />
-              {poisOnPlan.map((p) => {
-                const isAnchor1 = anchor1.poiId === p.id;
-                const isAnchor2 = anchor2.poiId === p.id;
-                const used = isAnchor1 || isAnchor2;
-                const canPick =
-                  (step === "pickPlan1" && !used) ||
-                  (step === "pickPlan2" && !used);
-                return (
-                  <button
-                    type="button"
-                    key={p.id}
-                    disabled={!canPick && !used}
-                    onClick={() => canPick && onPickPoi(p.id)}
-                    style={{
-                      left: `${p.planimetriaX! * 100}%`,
-                      top: `${p.planimetriaY! * 100}%`,
-                    }}
-                    className={cn(
-                      "absolute -translate-x-1/2 -translate-y-1/2 h-7 w-7 rounded-full text-white text-[11px] font-bold flex items-center justify-center ring-2 ring-white shadow-[0_2px_6px_rgba(0,0,0,0.3)] transition-transform",
-                      used
-                        ? "bg-brand scale-125"
-                        : canPick
-                          ? "bg-foreground cursor-pointer hover:scale-110 hover:bg-brand"
-                          : "bg-foreground/40 cursor-not-allowed",
-                    )}
-                  >
-                    {p.fromPlanimetriaN ?? ""}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          {/* Map */}
-          <div className="flex-1 relative">
-            <div ref={mapDivRef} className="absolute inset-0" />
-            {!ready && (
-              <div className="absolute inset-0 flex items-center justify-center gap-2 text-muted-foreground bg-muted">
-                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
-                <span className="text-xs">Carico la mappa…</span>
-              </div>
-            )}
-            {currentStepIsGps && (
-              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-brand text-white text-xs font-medium px-4 py-2 rounded-full shadow-lg inline-flex items-center gap-2 pointer-events-none">
-                <MapPin className="h-3.5 w-3.5" strokeWidth={2} />
-                Click sulla mappa dove sta il POI
-              </div>
-            )}
-          </div>
-        </div>
+            Vai al Brief
+            <ArrowRight className="h-3.5 w-3.5" strokeWidth={1.8} />
+          </Link>
+        )}
       </div>
     </div>
   );
 }
 
-function stepNumber(
-  step: "pickPlan1" | "pickGps1" | "pickPlan2" | "pickGps2",
-): number {
-  return step === "pickPlan1"
-    ? 1
-    : step === "pickGps1"
-      ? 2
-      : step === "pickPlan2"
-        ? 3
-        : 4;
+function NoPlanimetriaPanel({ projectId }: { projectId: string }) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border bg-card p-6 flex items-start gap-3">
+      <MapPin
+        className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5"
+        strokeWidth={1.8}
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium">Nessuna planimetria caricata</p>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          Puoi gestire i POI solo dalla lista qui sotto. Per piazzarli su un
+          disegno, carica la planimetria nelle{" "}
+          <Link
+            href={`/progetti/${projectId}/fonti`}
+            className="underline text-foreground underline-offset-2"
+          >
+            Fonti
+          </Link>
+          .
+        </p>
+      </div>
+    </div>
+  );
 }
 
-function EmptyState({
-  icon,
-  title,
-  body,
+function ProposalReview({
+  zones,
+  pois,
+  spatialMode,
+  isReproposing,
+  existingPoisCount,
+  onTogglePoi,
+  onRenamePoi,
+  onEditPoiDescription,
+  onAccept,
+  onDiscard,
 }: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
+  zones: ProposedZone[];
+  pois: ProposedPoi[];
+  spatialMode: ProjectMap["spatialMode"] | null;
+  isReproposing: boolean;
+  existingPoisCount: number;
+  onTogglePoi: (id: string, approved: boolean) => void;
+  onRenamePoi: (id: string, name: string) => void;
+  onEditPoiDescription: (id: string, description: string) => void;
+  onAccept: () => void;
+  onDiscard: () => void;
+}) {
+  const approvedCount = pois.filter((p) => p.approved).length;
+  const poisByZone = new Map<string, ProposedPoi[]>();
+  pois.forEach((p) => {
+    const key = p.zoneSuggested || "—";
+    const arr = poisByZone.get(key) ?? [];
+    arr.push(p);
+    poisByZone.set(key, arr);
+  });
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="space-y-5"
+    >
+      <div
+        className={cn(
+          "rounded-2xl border p-5",
+          isReproposing
+            ? "border-amber-300 bg-amber-50"
+            : "border-brand/30 bg-brand/5",
+        )}
+      >
+        <div className="flex items-start gap-3">
+          <Sparkles
+            className={cn(
+              "h-4 w-4 shrink-0 mt-0.5",
+              isReproposing ? "text-amber-700" : "text-brand",
+            )}
+            strokeWidth={1.8}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">
+              {isReproposing
+                ? "Nuova proposta (sostituirà l'attuale)"
+                : "Proposta AI"}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              {isReproposing && (
+                <>
+                  <strong>Attenzione</strong>: confermando questa proposta i{" "}
+                  {existingPoisCount} POI attuali verranno sostituiti.{" "}
+                </>
+              )}
+              {zones.length} zone · {pois.length} POI candidati. Spuntali per
+              confermarli, rinomina se serve. Niente coordinate ancora:
+              decideremo insieme dopo.
+              {spatialMode && (
+                <>
+                  {" "}
+                  Modalità spaziale suggerita: <strong>{spatialMode}</strong>.
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Zone proposte */}
+      <div className="rounded-2xl border border-border bg-card">
+        <div className="px-5 py-3 border-b border-border/60 flex items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+            Zone narrative · {zones.length}
+          </p>
+        </div>
+        <ul className="divide-y divide-border/60">
+          {zones.map((z) => (
+            <li key={z.id} className="px-5 py-4">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-sm font-medium">{z.name}</p>
+                <span className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                  {ZONE_FUNCTION_LABEL[z.function]}
+                </span>
+              </div>
+              {z.narrativePromise && (
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  {z.narrativePromise}
+                </p>
+              )}
+              {z.reasoning && (
+                <p className="text-[11px] text-muted-foreground/80 mt-2 italic">
+                  {z.reasoning}
+                </p>
+              )}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* POI proposti per zona */}
+      <div className="rounded-2xl border border-border bg-card">
+        <div className="px-5 py-3 border-b border-border/60 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <MapPin
+              className="h-4 w-4 text-muted-foreground"
+              strokeWidth={1.8}
+            />
+            <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+              Punti proposti · {approvedCount}/{pois.length}
+            </p>
+          </div>
+        </div>
+        <div className="divide-y divide-border/60">
+          {Array.from(poisByZone.entries()).map(([zone, list]) => (
+            <div key={zone} className="px-5 py-4">
+              <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground font-medium mb-3">
+                {zone}
+              </p>
+              <ul className="space-y-2">
+                {list.map((p) => (
+                  <li
+                    key={p.id}
+                    className={cn(
+                      "rounded-xl border bg-paper/40 p-3 flex items-start gap-3",
+                      p.approved
+                        ? "border-border"
+                        : "border-border/40 opacity-60",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onTogglePoi(p.id, !p.approved)}
+                      className={cn(
+                        "shrink-0 mt-0.5 h-5 w-5 rounded-full border-2 flex items-center justify-center transition-colors",
+                        p.approved
+                          ? "bg-brand border-brand text-white"
+                          : "border-muted-foreground/40 hover:border-foreground",
+                      )}
+                      aria-label={p.approved ? "Scarta" : "Approva"}
+                    >
+                      {p.approved && (
+                        <Check className="h-3 w-3" strokeWidth={3} />
+                      )}
+                    </button>
+                    <div className="flex-1 min-w-0 space-y-2">
+                      <Input
+                        value={p.name}
+                        onChange={(e) => onRenamePoi(p.id, e.target.value)}
+                        className="h-8 text-sm font-medium bg-card"
+                      />
+                      <textarea
+                        value={p.description}
+                        onChange={(e) =>
+                          onEditPoiDescription(p.id, e.target.value)
+                        }
+                        rows={2}
+                        className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                      />
+                      <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                        <span>
+                          Sosta {Math.round(p.minStaySeconds / 60)} min
+                        </span>
+                        {p.evidence && (
+                          <span
+                            className="italic truncate max-w-[60%]"
+                            title={p.evidence}
+                          >
+                            &ldquo;{p.evidence}&rdquo;
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2">
+        <button
+          type="button"
+          onClick={onDiscard}
+          className="inline-flex items-center h-10 px-5 rounded-full text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          Scarta proposta
+        </button>
+        <button
+          type="button"
+          onClick={onAccept}
+          disabled={approvedCount === 0}
+          className={cn(
+            "inline-flex items-center gap-1.5 h-10 px-5 rounded-full text-sm font-medium transition-colors",
+            approvedCount === 0
+              ? "bg-muted text-muted-foreground cursor-not-allowed"
+              : "bg-foreground text-background hover:bg-foreground/90",
+          )}
+        >
+          <Check className="h-4 w-4" strokeWidth={2} />
+          Conferma {approvedCount} POI
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+function ZonesPanel({
+  zones,
+  pois,
+  onUpdateZone,
+  onRemoveZone,
+  onAddZone,
+}: {
+  zones: MapZone[];
+  pois: MapPoi[];
+  onUpdateZone: (id: string, patch: Partial<MapZone>) => void;
+  onRemoveZone: (id: string) => void;
+  onAddZone: () => void;
+}) {
+  const countByZone = (zoneId: string) =>
+    pois.filter((p) => p.zoneId === zoneId).length;
+
+  return (
+    <div className="rounded-2xl border border-border bg-card">
+      <div className="px-5 py-3 border-b border-border/60 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+            Zone · {zones.length}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onAddZone}
+          className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium border border-border hover:bg-muted transition-colors"
+        >
+          <Plus className="h-3 w-3" strokeWidth={2} />
+          Aggiungi
+        </button>
+      </div>
+      {zones.length === 0 ? (
+        <div className="px-5 py-6 text-center">
+          <p className="text-sm text-muted-foreground">
+            Nessuna zona. Aggiungine una o fai rigenerare la proposta AI.
+          </p>
+        </div>
+      ) : (
+        <ul className="divide-y divide-border/60">
+          {zones.map((z) => (
+            <li key={z.id} className="px-5 py-4 space-y-2">
+              <div className="flex items-start gap-3">
+                <div className="flex-1 min-w-0 space-y-2">
+                  <Input
+                    value={z.name}
+                    onChange={(e) =>
+                      onUpdateZone(z.id, { name: e.target.value })
+                    }
+                    className="h-9 text-sm font-medium"
+                  />
+                  <textarea
+                    value={z.narrativePromise}
+                    onChange={(e) =>
+                      onUpdateZone(z.id, { narrativePromise: e.target.value })
+                    }
+                    placeholder="Promessa narrativa"
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                  />
+                  <div className="flex items-center gap-2">
+                    {(["apertura", "sviluppo", "climax"] as ZoneFunction[]).map(
+                      (fn) => (
+                        <button
+                          key={fn}
+                          type="button"
+                          onClick={() => onUpdateZone(z.id, { function: fn })}
+                          className={cn(
+                            "h-7 px-3 rounded-full text-[10px] font-medium transition-colors border",
+                            z.function === fn
+                              ? "bg-foreground text-background border-foreground"
+                              : "border-border text-muted-foreground hover:text-foreground",
+                          )}
+                          title={ZONE_FUNCTION_HINT[fn]}
+                        >
+                          {ZONE_FUNCTION_LABEL[fn]}
+                        </button>
+                      ),
+                    )}
+                    <span className="ml-auto text-[11px] text-muted-foreground">
+                      {countByZone(z.id)} POI
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onRemoveZone(z.id)}
+                  className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                  aria-label="Rimuovi zona"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function PlanimetriaEditor({
+  image,
+  pois,
+  zones,
+  onUpdatePoi,
+  onAddPoi,
+}: {
+  image: string;
+  pois: MapPoi[];
+  zones: MapZone[];
+  onUpdatePoi: (id: string, patch: Partial<MapPoi>) => void;
+  onAddPoi: (x?: number, y?: number) => void;
+}) {
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Target: primo POI senza coordinate → riceverà il click
+  const nextUnplaced = pois.find((p) => typeof p.planimetriaX !== "number");
+
+  const colorForZone = (zoneId?: string): string => {
+    if (!zoneId) return "bg-muted-foreground";
+    const idx = zones.findIndex((z) => z.id === zoneId);
+    const palette = [
+      "bg-sky-500",
+      "bg-emerald-500",
+      "bg-amber-500",
+      "bg-rose-500",
+      "bg-violet-500",
+    ];
+    if (idx === -1) return "bg-muted-foreground";
+    return palette[idx % palette.length];
+  };
+
+  const onCanvasClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!wrapperRef.current) return;
+    if (draggingId) return;
+    if (!nextUnplaced) return; // nessun POI da piazzare: click ignorato
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    onUpdatePoi(nextUnplaced.id, { planimetriaX: x, planimetriaY: y });
+    setSelectedId(nextUnplaced.id);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!draggingId || !wrapperRef.current) return;
+    const rect = wrapperRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    onUpdatePoi(draggingId, { planimetriaX: x, planimetriaY: y });
+  };
+
+  const placedPois = pois.filter((p) => typeof p.planimetriaX === "number");
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-3 border-b border-border/60 flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+          Planimetria · {placedPois.length}/{pois.length} piazzati
+        </p>
+        <p className="text-[11px] text-muted-foreground">
+          {nextUnplaced
+            ? `Clicca per piazzare: ${nextUnplaced.name}`
+            : "Tutti i POI piazzati. Trascina i pin per correggerli."}
+        </p>
+      </div>
+      <div
+        className="relative bg-[#F5F1EA] flex items-center justify-center min-h-[360px] p-4 select-none cursor-crosshair"
+        onClick={onCanvasClick}
+        onPointerMove={onPointerMove}
+        onPointerUp={() => setDraggingId(null)}
+        onPointerCancel={() => setDraggingId(null)}
+      >
+        <div ref={wrapperRef} className="relative inline-block">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={image}
+            alt="Planimetria"
+            draggable={false}
+            className="max-h-[560px] max-w-full object-contain block pointer-events-none"
+          />
+          {placedPois.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              onPointerDown={(e) => {
+                e.stopPropagation();
+                (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+                setDraggingId(p.id);
+                setSelectedId(p.id);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={p.name}
+              title={p.name}
+              className={cn(
+                "absolute -translate-x-1/2 -translate-y-1/2 h-7 w-7 rounded-full text-white text-[11px] font-bold flex items-center justify-center shadow-[0_2px_6px_rgba(0,0,0,0.3)] ring-2 transition-all",
+                colorForZone(p.zoneId),
+                selectedId === p.id
+                  ? "ring-white ring-offset-2 ring-offset-[#F5F1EA] scale-110"
+                  : "ring-white",
+                draggingId === p.id
+                  ? "cursor-grabbing scale-125"
+                  : "cursor-grab hover:scale-110",
+              )}
+              style={{
+                left: `${(p.planimetriaX ?? 0) * 100}%`,
+                top: `${(p.planimetriaY ?? 0) * 100}%`,
+                touchAction: "none",
+              }}
+            >
+              {pois.findIndex((x) => x.id === p.id) + 1}
+            </button>
+          ))}
+        </div>
+      </div>
+      {zones.length > 0 && (
+        <div className="px-5 py-3 border-t border-border/60 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+          {zones.map((z, i) => {
+            const palette = [
+              "bg-sky-500",
+              "bg-emerald-500",
+              "bg-amber-500",
+              "bg-rose-500",
+              "bg-violet-500",
+            ];
+            return (
+              <span key={z.id} className="inline-flex items-center gap-1.5">
+                <span
+                  className={cn(
+                    "h-2 w-2 rounded-full",
+                    palette[i % palette.length],
+                  )}
+                />
+                {z.name}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PoiList({
+  pois,
+  zones,
+  project,
+  onUpdatePoi,
+  onRemovePoi,
+  onAddPoi,
+}: {
+  pois: MapPoi[];
+  zones: MapZone[];
+  project: StoredProject | null;
+  onUpdatePoi: (id: string, patch: Partial<MapPoi>) => void;
+  onRemovePoi: (id: string) => void;
+  onAddPoi: () => void;
 }) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center p-8">
-      <div className="max-w-sm text-center space-y-3">
-        <div className="h-12 w-12 rounded-2xl bg-background border border-border mx-auto flex items-center justify-center text-muted-foreground">
-          {icon}
+    <div className="rounded-2xl border border-border bg-card">
+      <div className="px-5 py-3 border-b border-border/60 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <MapPin className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+            Punti di interesse · {pois.length}
+          </p>
         </div>
-        <p className="font-medium">{title}</p>
-        <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
+        <button
+          type="button"
+          onClick={onAddPoi}
+          className="inline-flex items-center gap-1 h-7 px-3 rounded-full text-[11px] font-medium border border-border hover:bg-muted transition-colors"
+        >
+          <Plus className="h-3 w-3" strokeWidth={2} />
+          Aggiungi POI
+        </button>
       </div>
+      <ul className="divide-y divide-border/60">
+        {pois.map((p, idx) => (
+          <li key={p.id} className="px-5 py-4">
+            <div className="flex items-start gap-3">
+              <span className="shrink-0 h-7 w-7 rounded-full bg-foreground text-background text-[11px] font-bold flex items-center justify-center tabular-nums mt-0.5">
+                {idx + 1}
+              </span>
+              <div className="flex-1 min-w-0 space-y-2">
+                <Input
+                  value={p.name}
+                  onChange={(e) => onUpdatePoi(p.id, { name: e.target.value })}
+                  className="h-9 text-sm font-medium"
+                />
+                <textarea
+                  value={p.description}
+                  onChange={(e) =>
+                    onUpdatePoi(p.id, { description: e.target.value })
+                  }
+                  placeholder="Descrizione breve"
+                  rows={2}
+                  className="w-full rounded-md border border-border bg-card px-3 py-2 text-xs resize-y focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                />
+                <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                  <div className="inline-flex items-center gap-1.5">
+                    <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Zona
+                    </Label>
+                    <select
+                      value={p.zoneId ?? ""}
+                      onChange={(e) =>
+                        onUpdatePoi(p.id, {
+                          zoneId: e.target.value || undefined,
+                        })
+                      }
+                      className="h-7 rounded-md border border-border bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                    >
+                      <option value="">—</option>
+                      {zones.map((z) => (
+                        <option key={z.id} value={z.id}>
+                          {z.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="inline-flex items-center gap-1">
+                    <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mr-1">
+                      Tipo
+                    </Label>
+                    {(["indoor", "outdoor"] as PoiType[]).map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => onUpdatePoi(p.id, { type: t })}
+                        className={cn(
+                          "h-7 px-2.5 rounded-full text-[10px] font-medium transition-colors border",
+                          p.type === t
+                            ? "bg-foreground text-background border-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        {t === "indoor" ? "Interno" : "Esterno"}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="inline-flex items-center gap-1.5">
+                    <Label className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
+                      Sosta (min)
+                    </Label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={30}
+                      value={Math.round((p.minStaySeconds ?? 120) / 60)}
+                      onChange={(e) =>
+                        onUpdatePoi(p.id, {
+                          minStaySeconds:
+                            Math.max(
+                              1,
+                              Math.min(30, parseInt(e.target.value, 10) || 1),
+                            ) * 60,
+                        })
+                      }
+                      className="h-7 w-16 rounded-md border border-border bg-card px-2 text-xs focus:outline-none focus:ring-1 focus:ring-foreground/30"
+                    />
+                  </div>
+
+                  {typeof p.planimetriaX === "number" ? (
+                    <span className="inline-flex items-center gap-1 text-brand">
+                      <Check className="h-3 w-3" strokeWidth={2.5} />
+                      Piazzato
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Non piazzato</span>
+                  )}
+                </div>
+
+                <PoiImageUpload
+                  value={p.image}
+                  onChange={(img) =>
+                    onUpdatePoi(p.id, { image: img ?? undefined })
+                  }
+                  poi={p}
+                  project={project}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => onRemovePoi(p.id)}
+                className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                aria-label="Rimuovi POI"
+              >
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function PoiImageUpload({
+  value,
+  onChange,
+  poi,
+  project,
+}: {
+  value?: string;
+  onChange: (v: string | null) => void;
+  poi: MapPoi;
+  project: StoredProject | null;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  const handle = async (f: File) => {
+    if (!f.type.startsWith("image/")) return;
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(f);
+    });
+    onChange(dataUrl);
+  };
+
+  const generate = async (style: "illustrazione" | "fotorealistico") => {
+    setPickerOpen(false);
+    const apiKey = loadApiKeys().llm.openai;
+    if (!apiKey) {
+      setError("Configura la chiave OpenAI in Impostazioni.");
+      return;
+    }
+    if (!project?.name) {
+      setError("Dati progetto mancanti.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/ai/generate-poi-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          apiKey,
+          style,
+          poiName: poi.name,
+          poiDescription: poi.description,
+          projectName: project.name,
+          projectType: project.type,
+          city: project.city,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.dataUrl) {
+        setError(data.message ?? "Errore generazione immagine.");
+        return;
+      }
+      onChange(data.dataUrl);
+    } catch {
+      setError("Errore di rete.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 flex-wrap">
+        {value ? (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={value}
+              alt="Foto POI"
+              className="h-14 w-20 object-cover rounded-md border border-border"
+            />
+            <button
+              type="button"
+              onClick={() => ref.current?.click()}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] border border-border hover:bg-muted transition-colors"
+            >
+              <RefreshCw className="h-3 w-3" strokeWidth={1.8} />
+              Cambia
+            </button>
+            <button
+              type="button"
+              onClick={() => setPickerOpen((s) => !s)}
+              disabled={busy}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] border border-border hover:bg-muted transition-colors disabled:opacity-50 disabled:cursor-wait"
+            >
+              {busy ? (
+                <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.8} />
+              ) : (
+                <Sparkles className="h-3 w-3" strokeWidth={1.8} />
+              )}
+              Rigenera AI
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              Rimuovi
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => ref.current?.click()}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+            >
+              <ImageIcon className="h-3.5 w-3.5" strokeWidth={1.8} />
+              Carica foto
+            </button>
+            <button
+              type="button"
+              onClick={() => setPickerOpen((s) => !s)}
+              disabled={busy}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium bg-brand/10 text-brand border border-brand/30 hover:bg-brand/20 transition-colors disabled:opacity-50 disabled:cursor-wait"
+            >
+              {busy ? (
+                <>
+                  <Loader2
+                    className="h-3.5 w-3.5 animate-spin"
+                    strokeWidth={1.8}
+                  />
+                  Genero…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-3.5 w-3.5" strokeWidth={1.8} />
+                  Genera con AI
+                </>
+              )}
+            </button>
+          </>
+        )}
+      </div>
+
+      {pickerOpen && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[11px] text-muted-foreground mr-1">Stile:</span>
+          <button
+            type="button"
+            onClick={() => generate("fotorealistico")}
+            className="inline-flex items-center h-7 px-3 rounded-full text-[11px] font-medium border border-border hover:bg-muted transition-colors"
+          >
+            Fotorealistico
+          </button>
+          <button
+            type="button"
+            onClick={() => generate("illustrazione")}
+            className="inline-flex items-center h-7 px-3 rounded-full text-[11px] font-medium border border-border hover:bg-muted transition-colors"
+          >
+            Illustrazione
+          </button>
+          <button
+            type="button"
+            onClick={() => setPickerOpen(false)}
+            className="inline-flex items-center h-7 px-2 rounded-full text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          >
+            annulla
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <p className="text-[11px] text-destructive flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" strokeWidth={1.8} />
+          {error}
+        </p>
+      )}
+
+      <input
+        ref={ref}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handle(f);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+function GpsEditor({
+  pois,
+  zones,
+  project,
+  onUpdatePoi,
+  onAssignToNext,
+  onAutoCompute,
+  autoComputeBusy,
+  autoComputeError,
+  missingCount,
+}: {
+  pois: MapPoi[];
+  zones: MapZone[];
+  project: StoredProject | null;
+  onUpdatePoi: (id: string, patch: Partial<MapPoi>) => void;
+  onAssignToNext: (lat: number, lng: number) => void;
+  onAutoCompute?: () => void | Promise<void>;
+  autoComputeBusy?: boolean;
+  autoComputeError?: string | null;
+  missingCount?: number;
+}) {
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<Map<string, google.maps.Marker>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [mapsError, setMapsError] = useState<string | null>(null);
+  const [zoomTo, setZoomTo] = useState<{ lat: number; lng: number } | null>(
+    null,
+  );
+  const onAssignRef = useRef(onAssignToNext);
+  onAssignRef.current = onAssignToNext;
+  const onUpdateRef = useRef(onUpdatePoi);
+  onUpdateRef.current = onUpdatePoi;
+  const hasUnplacedRef = useRef(false);
+  hasUnplacedRef.current = pois.some((p) => typeof p.lat !== "number");
+
+  const apiKey = loadApiKeys().googleMaps;
+
+  const placedPois = pois.filter((p) => typeof p.lat === "number");
+  const nextUnplaced = pois.find((p) => typeof p.lat !== "number");
+
+  // Inizializzazione mappa
+  useEffect(() => {
+    if (!apiKey) {
+      setMapsError(
+        "Configura la chiave Google Maps in Impostazioni per usare il GPS.",
+      );
+      setLoading(false);
+      return;
+    }
+    let alive = true;
+    (async () => {
+      try {
+        const maps = await loadGoogleMaps(apiKey);
+        if (!alive || !mapContainerRef.current) return;
+
+        // Centro iniziale: prima cerca un POI già piazzato, poi geocoding indirizzo,
+        // altrimenti centra su Italia
+        let center: google.maps.LatLngLiteral = { lat: 41.9, lng: 12.5 };
+        let zoom = 6;
+
+        const anchor = placedPois[0];
+        if (
+          anchor &&
+          typeof anchor.lat === "number" &&
+          typeof anchor.lng === "number"
+        ) {
+          center = { lat: anchor.lat, lng: anchor.lng };
+          zoom = 17;
+        } else if (project?.address || project?.city) {
+          const geo = await geocodeAddress(
+            apiKey,
+            project.address || project.city || "",
+          );
+          if (geo) {
+            center = geo;
+            zoom = 16;
+          }
+        }
+
+        if (!alive || !mapContainerRef.current) return;
+
+        const gmap = new maps.Map(mapContainerRef.current, {
+          center,
+          zoom,
+          mapTypeId: maps.MapTypeId.HYBRID,
+          streetViewControl: false,
+          fullscreenControl: true,
+          mapTypeControl: true,
+          clickableIcons: false,
+        });
+
+        mapInstanceRef.current = gmap;
+
+        gmap.addListener("click", (e: google.maps.MapMouseEvent) => {
+          const ll = e.latLng;
+          if (!ll) return;
+          // Solo se c'è un POI non ancora piazzato su GPS: assegna. Altrimenti ignora.
+          if (!hasUnplacedRef.current) return;
+          onAssignRef.current(ll.lat(), ll.lng());
+        });
+
+        setLoading(false);
+      } catch (err) {
+        setMapsError(
+          err instanceof Error ? err.message : "Errore caricamento mappa.",
+        );
+        setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiKey]);
+
+  // Sincronizza marker
+  useEffect(() => {
+    const gmap = mapInstanceRef.current;
+    if (!gmap) return;
+    const existing = markersRef.current;
+    const keep = new Set<string>();
+
+    placedPois.forEach((p, idx) => {
+      keep.add(p.id);
+      const zoneIdx = zones.findIndex((z) => z.id === p.zoneId);
+      const color =
+        zoneIdx >= 0 ? ZONE_PALETTE[zoneIdx % ZONE_PALETTE.length] : "#6b7280";
+      const position = { lat: p.lat!, lng: p.lng! };
+      const orderNum = pois.findIndex((x) => x.id === p.id) + 1 || idx + 1;
+
+      let marker = existing.get(p.id);
+      if (!marker) {
+        marker = new google.maps.Marker({
+          position,
+          map: gmap,
+          draggable: true,
+          label: {
+            text: String(orderNum),
+            color: "#ffffff",
+            fontSize: "12px",
+            fontWeight: "600",
+          },
+          icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 12,
+            fillColor: color,
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          },
+        });
+        marker.addListener("dragend", () => {
+          const pos = marker!.getPosition();
+          if (!pos) return;
+          onUpdateRef.current(p.id, { lat: pos.lat(), lng: pos.lng() });
+        });
+        existing.set(p.id, marker);
+      } else {
+        marker.setPosition(position);
+        marker.setLabel({
+          text: String(orderNum),
+          color: "#ffffff",
+          fontSize: "12px",
+          fontWeight: "600",
+        });
+        marker.setIcon({
+          path: google.maps.SymbolPath.CIRCLE,
+          scale: 12,
+          fillColor: color,
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 2,
+        });
+      }
+    });
+
+    // Rimuovi marker orfani
+    for (const [id, marker] of existing) {
+      if (!keep.has(id)) {
+        marker.setMap(null);
+        existing.delete(id);
+      }
+    }
+  }, [placedPois, pois, zones]);
+
+  // Pan al POI selezionato da zoomTo
+  useEffect(() => {
+    const gmap = mapInstanceRef.current;
+    if (!gmap || !zoomTo) return;
+    gmap.panTo(zoomTo);
+    if ((gmap.getZoom() ?? 0) < 17) gmap.setZoom(17);
+    setZoomTo(null);
+  }, [zoomTo]);
+
+  return (
+    <div className="rounded-2xl border border-border bg-card overflow-hidden">
+      <div className="px-5 py-3 border-b border-border/60 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-baseline gap-3 min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground font-medium">
+            Mappa GPS · {placedPois.length}/{pois.length} piazzati
+          </p>
+          <p className="text-[11px] text-muted-foreground truncate">
+            {nextUnplaced
+              ? `Click per piazzare: ${nextUnplaced.name}`
+              : "Trascina i marker per correggere."}
+          </p>
+        </div>
+        {onAutoCompute && (missingCount ?? 0) > 0 && (
+          <button
+            type="button"
+            onClick={() => void onAutoCompute()}
+            disabled={autoComputeBusy}
+            className={cn(
+              "inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[11px] font-medium transition-colors",
+              autoComputeBusy
+                ? "bg-muted text-muted-foreground cursor-wait"
+                : "bg-foreground text-background hover:bg-foreground/90",
+            )}
+          >
+            {autoComputeBusy ? (
+              <>
+                <Loader2 className="h-3 w-3 animate-spin" strokeWidth={1.8} />
+                Calcolo…
+              </>
+            ) : (
+              <>
+                <Sparkles className="h-3 w-3" strokeWidth={1.8} />
+                Calcola GPS automatico
+              </>
+            )}
+          </button>
+        )}
+      </div>
+      {autoComputeError && (
+        <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
+          <AlertCircle
+            className="h-3.5 w-3.5 shrink-0 mt-0.5"
+            strokeWidth={1.8}
+          />
+          <span>{autoComputeError}</span>
+        </div>
+      )}
+      {mapsError ? (
+        <div className="p-8 flex items-start gap-3">
+          <AlertCircle
+            className="h-4 w-4 text-destructive shrink-0 mt-0.5"
+            strokeWidth={1.8}
+          />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">Mappa non disponibile</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              {mapsError}
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="relative">
+          <div ref={mapContainerRef} className="w-full h-[520px] bg-muted" />
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-paper/60 backdrop-blur-sm">
+              <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.8} />
+                Carico la mappa…
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {zones.length > 0 && !mapsError && (
+        <div className="px-5 py-3 border-t border-border/60 flex flex-wrap gap-3 text-[11px] text-muted-foreground">
+          {zones.map((z, i) => (
+            <span key={z.id} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{
+                  backgroundColor: ZONE_PALETTE[i % ZONE_PALETTE.length],
+                }}
+              />
+              {z.name}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

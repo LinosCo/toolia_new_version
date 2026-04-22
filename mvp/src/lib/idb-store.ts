@@ -1,9 +1,10 @@
 const DB_NAME = "toolia-studio";
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const STORE_SOURCES = "sources";
 const STORE_KB = "kb";
 const STORE_BRIEF = "brief";
 const STORE_MAP = "map";
+const STORE_DRIVERS = "drivers";
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -27,6 +28,9 @@ function openDB(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(STORE_MAP)) {
         db.createObjectStore(STORE_MAP);
+      }
+      if (!db.objectStoreNames.contains(STORE_DRIVERS)) {
+        db.createObjectStore(STORE_DRIVERS);
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -79,3 +83,4 @@ export const SOURCES_STORE = STORE_SOURCES;
 export const KB_STORE = STORE_KB;
 export const BRIEF_STORE = STORE_BRIEF;
 export const MAP_STORE = STORE_MAP;
+export const DRIVERS_STORE = STORE_DRIVERS;

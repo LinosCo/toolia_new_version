@@ -26,7 +26,8 @@ export async function POST(req: NextRequest) {
       respondentRole,
       websiteText,
       documentsText,
-      poi,
+      planimetriaDescription,
+      spatialHints,
     } = await req.json();
 
     if (!apiKey) {
@@ -44,12 +45,17 @@ export async function POST(req: NextRequest) {
       `Luogo: ${projectName ?? "—"}${type ? ` (${type})` : ""}${city ? ` — ${city}` : ""}`,
     );
     parts.push(`Intervistato: ${respondentRole ?? "gestore"}`);
-    if (Array.isArray(poi) && poi.length > 0) {
+    if (Array.isArray(spatialHints) && spatialHints.length > 0) {
       parts.push(
-        `Punti di interesse noti:\n${poi
-          .slice(0, 12)
-          .map((p: { n: number; name: string }) => `- ${p.n}. ${p.name}`)
-          .join("\n")}`,
+        `Ambienti/spunti osservati sulla planimetria (non ancora confermati come POI): ${spatialHints.slice(0, 20).join(", ")}.`,
+      );
+    }
+    if (
+      typeof planimetriaDescription === "string" &&
+      planimetriaDescription.trim().length > 30
+    ) {
+      parts.push(
+        `Descrizione della planimetria:\n${planimetriaDescription.slice(0, 2000)}`,
       );
     }
     if (websiteText) {

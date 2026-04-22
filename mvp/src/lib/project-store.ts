@@ -7,6 +7,7 @@ import {
   KB_STORE,
   BRIEF_STORE,
   MAP_STORE,
+  DRIVERS_STORE,
 } from "./idb-store";
 
 export interface StoredProject {
@@ -50,12 +51,27 @@ export interface UploadedDocument {
   poiRef?: number;
 }
 
-export interface PlanimetriaPoi {
+export interface SpatialHint {
+  name: string; // nome dello spunto (es. "Fossato", "Trincea")
+  description: string; // descrizione estesa letta accanto al punto sulla planimetria
+}
+
+export interface PlanimetriaSource {
+  image: string; // dataURL o URL dell'immagine della planimetria
+  description: string; // descrizione ricca (AI Vision) del disegno: piani, ambienti, etichette visibili, percorsi
+  spatialHints: SpatialHint[]; // punti osservati nel disegno (nome + descrizione). NO coordinate. Serviranno nello Step Luogo come spunti cross-source.
+  importance: Importance;
+  reliability: Reliability;
+  analyzedAt?: string; // ultima analisi Vision
+}
+
+/** @deprecated shape vecchia: solo per lettura/migrazione da localStorage/IndexedDB esistente. */
+export interface LegacyPlanimetriaPoi {
   n: number;
   name: string;
-  description: string;
-  x: number; // 0..1
-  y: number; // 0..1
+  description?: string;
+  x: number;
+  y: number;
 }
 
 export interface WebsiteSource {
@@ -101,8 +117,7 @@ export interface InterviewSource {
 export interface ProjectSources {
   logo?: string;
   images: ImageItem[];
-  planimetria?: string;
-  planimetriaPoi?: PlanimetriaPoi[];
+  planimetria?: PlanimetriaSource;
   website?: WebsiteSource;
   documents: UploadedDocument[];
   interview?: InterviewSource;
@@ -110,7 +125,12 @@ export interface ProjectSources {
 
 export type KBCategory = "solido" | "interpretazione" | "memoria" | "ipotesi";
 
-export type KBSourceKind = "sito" | "documento" | "intervista" | "manuale";
+export type KBSourceKind =
+  | "sito"
+  | "documento"
+  | "intervista"
+  | "planimetria"
+  | "manuale";
 
 export interface KBSourceRef {
   kind: KBSourceKind;
@@ -134,6 +154,46 @@ export interface KBFact {
 export interface ProjectKB {
   facts: KBFact[];
   lastExtractedAt?: string;
+  // Firma stabile delle fonti al momento dell'ultima estrazione. Se cambia → KB stale.
+  extractedSignature?: string;
+}
+
+/**
+ * Firma deterministica delle fonti testuali. Cambia se l'utente modifica
+ * qualsiasi contenuto rilevante per l'estrazione KB.
+ */
+export function sourcesSignature(s: ProjectSources): string {
+  const parts: string[] = [];
+  if (s.planimetria?.image) {
+    parts.push(
+      `plan:${s.planimetria.description.length}:${s.planimetria.spatialHints.length}:${s.planimetria.importance}:${s.planimetria.reliability}:${s.planimetria.analyzedAt ?? ""}`,
+    );
+    s.planimetria.spatialHints.forEach((h) => {
+      parts.push(`hint:${h.name.length}:${h.description.length}`);
+    });
+  }
+  if (s.website?.text) {
+    parts.push(
+      `web:${s.website.url}:${s.website.text.length}:${s.website.importance}:${s.website.reliability}`,
+    );
+  }
+  s.documents.forEach((d) => {
+    parts.push(`doc:${d.id}:${d.text.length}:${d.importance}:${d.reliability}`);
+  });
+  if (s.interview) {
+    const iv = s.interview;
+    if (iv.mode === "trascrizione") {
+      parts.push(
+        `int:transcript:${(iv.transcriptText ?? "").length}:${iv.importance}:${iv.reliability}`,
+      );
+    } else {
+      const answered = iv.qa.filter((q) => q.answer.trim());
+      parts.push(
+        `int:qa:${answered.length}:${answered.reduce((acc, q) => acc + q.answer.length, 0)}:${iv.importance}:${iv.reliability}`,
+      );
+    }
+  }
+  return parts.join("|");
 }
 
 /* ========================= BRIEF ========================== */
@@ -163,7 +223,7 @@ export interface FamilyModeConfig {
 
 export type SpatialMode = "gps" | "indoor" | "hybrid";
 export type PoiType = "indoor" | "outdoor";
-export type ZoneFunction = "opening" | "development" | "climax" | "closure";
+export type ZoneFunction = "apertura" | "sviluppo" | "climax";
 
 export interface MapPoi {
   id: string;
@@ -175,6 +235,7 @@ export interface MapPoi {
   minStaySeconds?: number;
   zoneId?: string;
   order: number;
+  image?: string; // dataURL foto POI (sfondo scheda nell'app visitatore)
   // Riferimenti alle fonti
   fromPlanimetriaN?: number;
   // Riferimento x,y sulla planimetria (0..1) per l'auto-distribuzione
@@ -500,15 +561,90 @@ function normalizeInterview(raw: unknown): InterviewSource | undefined {
   };
 }
 
+function normalizeSpatialHints(raw: unknown): SpatialHint[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((h): SpatialHint | null => {
+      // Shape legacy: stringa → {name, description:""}
+      if (typeof h === "string") {
+        const trimmed = h.trim();
+        if (!trimmed) return null;
+        return { name: trimmed, description: "" };
+      }
+      if (h && typeof h === "object") {
+        const o = h as Partial<SpatialHint>;
+        const name = typeof o.name === "string" ? o.name.trim() : "";
+        if (!name) return null;
+        return {
+          name,
+          description:
+            typeof o.description === "string" ? o.description.trim() : "",
+        };
+      }
+      return null;
+    })
+    .filter((h): h is SpatialHint => h !== null);
+}
+
+function normalizePlanimetria(
+  rawPlanimetria: unknown,
+  legacyPoi: unknown,
+): PlanimetriaSource | undefined {
+  // Caso 1: nessuna planimetria
+  if (!rawPlanimetria) return undefined;
+
+  // Caso 2: shape vecchia — planimetria è una stringa (dataURL)
+  if (typeof rawPlanimetria === "string") {
+    const hints: SpatialHint[] = Array.isArray(legacyPoi)
+      ? (legacyPoi as LegacyPlanimetriaPoi[])
+          .map((p): SpatialHint | null => {
+            const name = typeof p.name === "string" ? p.name.trim() : "";
+            if (!name) return null;
+            return {
+              name,
+              description:
+                typeof p.description === "string" ? p.description.trim() : "",
+            };
+          })
+          .filter((h): h is SpatialHint => h !== null)
+      : [];
+    return {
+      image: rawPlanimetria,
+      description: "",
+      spatialHints: hints,
+      importance: "primaria",
+      reliability: "alta",
+    };
+  }
+
+  // Caso 3: shape nuova
+  if (typeof rawPlanimetria === "object") {
+    const r = rawPlanimetria as Partial<PlanimetriaSource>;
+    if (!r.image) return undefined;
+    return {
+      image: r.image,
+      description: typeof r.description === "string" ? r.description : "",
+      spatialHints: normalizeSpatialHints(r.spatialHints),
+      importance: (r.importance ?? "primaria") as Importance,
+      reliability: (r.reliability ?? "alta") as Reliability,
+      analyzedAt: r.analyzedAt,
+    };
+  }
+
+  return undefined;
+}
+
 function normalizeSources(
   raw: Partial<ProjectSources> | undefined,
 ): ProjectSources {
   if (!raw) return { images: [], documents: [] };
+  const legacyPoi = (
+    raw as Partial<ProjectSources> & { planimetriaPoi?: unknown }
+  ).planimetriaPoi;
   return {
     logo: raw.logo,
     images: normalizeImages(raw.images),
-    planimetria: raw.planimetria,
-    planimetriaPoi: raw.planimetriaPoi,
+    planimetria: normalizePlanimetria(raw.planimetria, legacyPoi),
     website: normalizeWebsite(raw.website),
     documents: normalizeDocuments(raw.documents),
     interview: normalizeInterview(raw.interview),
@@ -600,6 +736,7 @@ export async function loadKB(projectId: string): Promise<ProjectKB> {
     return {
       facts: Array.isArray(raw.facts) ? raw.facts : [],
       lastExtractedAt: raw.lastExtractedAt,
+      extractedSignature: raw.extractedSignature,
     };
   } catch {
     return { facts: [] };
@@ -712,6 +849,20 @@ export async function saveBrief(
   }
 }
 
+function normalizeZoneFunction(raw: unknown): ZoneFunction {
+  // Migrazione da nomi inglesi/closure vecchi
+  const map: Record<string, ZoneFunction> = {
+    apertura: "apertura",
+    opening: "apertura",
+    sviluppo: "sviluppo",
+    development: "sviluppo",
+    closure: "sviluppo",
+    climax: "climax",
+  };
+  if (typeof raw !== "string") return "sviluppo";
+  return map[raw.toLowerCase()] ?? "sviluppo";
+}
+
 export async function loadMap(
   projectId: string,
 ): Promise<ProjectMap | undefined> {
@@ -724,7 +875,12 @@ export async function loadMap(
       centerLat: raw.centerLat,
       centerLng: raw.centerLng,
       pois: Array.isArray(raw.pois) ? raw.pois : [],
-      zones: Array.isArray(raw.zones) ? raw.zones : [],
+      zones: Array.isArray(raw.zones)
+        ? raw.zones.map((z) => ({
+            ...z,
+            function: normalizeZoneFunction(z.function),
+          }))
+        : [],
       anchors: Array.isArray(raw.anchors) ? raw.anchors : [],
       updatedAt: raw.updatedAt,
     };
@@ -811,6 +967,16 @@ export function kbFactsBySourceLabel(
         addBucket("intervista", label, w);
         break;
       }
+      case "planimetria": {
+        const w = sources.planimetria
+          ? sourceWeight(
+              sources.planimetria.importance,
+              sources.planimetria.reliability,
+            )
+          : 0;
+        addBucket("planimetria", "Planimetria", w);
+        break;
+      }
       case "manuale":
         addBucket("manuale", "Aggiunto manualmente", 9);
         break;
@@ -821,7 +987,7 @@ export function kbFactsBySourceLabel(
 
 export function sourcesCompletion(sources: ProjectSources): number {
   let score = 0;
-  if (sources.planimetria) score++;
+  if (sources.planimetria?.image) score++;
   if (sources.website?.text && sources.website.text.length > 30) score++;
   if (sources.documents.length > 0) score++;
   if (
@@ -837,4 +1003,233 @@ export function sourcesCompletion(sources: ProjectSources): number {
 
 export function newSourceId(prefix = "s"): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/* ============================================================== */
+/* ============== STEP 3 — DRIVER E PERSONAS ==================== */
+/* ============================================================== */
+
+export type PersonaPayoff =
+  | "meraviglia"
+  | "conoscenza"
+  | "emozione"
+  | "scoperta";
+
+export type PersonaPreferredDuration = "breve" | "media" | "lunga";
+
+export type ExperienceMode =
+  | "contemplativo"
+  | "dinamico"
+  | "emotivo"
+  | "analitico"
+  | "immersivo"
+  | "orientamento";
+
+export interface Driver {
+  id: string;
+  name: string;
+  domain: string; // storia / arte / architettura / natura / produzione / ...
+  description: string;
+  narrativeValue: string; // perché interessa il visitatore
+  enabledContentTypes: string[]; // tipi di contenuti che questo driver abilita
+  order: number;
+}
+
+export interface Persona {
+  id: string;
+  name: string; // es. "Famiglia esploratrice"
+  motivation: string;
+  payoff: PersonaPayoff;
+  preferredDuration: PersonaPreferredDuration;
+  preferredExperience: ExperienceMode[]; // più di uno possibile
+  validityNotes: string; // test validità legacy: perché questa persona ha senso qui
+  suggestedDriverIds: string[]; // driver principali per questa persona
+  order: number;
+}
+
+export interface DriverPersonaWeight {
+  driverId: string;
+  personaId: string;
+  weight: number; // 0-10, quanto quel driver pesa per quella persona
+}
+
+export interface EditorialLens {
+  id: string;
+  name: string; // es. "Storia per famiglia"
+  personaId: string;
+  primaryDriverId: string;
+  secondaryDriverIds: string[];
+  description: string;
+}
+
+export type ContinuityRuleType = "compatibility" | "anti-collage" | "dominance";
+
+export interface NarrativeContinuityRule {
+  id: string;
+  type: ContinuityRuleType;
+  rule: string; // descrizione in linguaggio naturale
+}
+
+export interface DominanceRules {
+  maxSecondaryDrivers: number; // quante secondarie ammesse (1-3)
+  minDominanceScore: number; // 0-1, soglia per dominante
+  blendThreshold: number; // 0-1, sopra questo livello il blend è troppo dispersivo
+}
+
+export interface InferenceModel {
+  passioneWeight: number; // 0-1
+  modalitaWeight: number;
+  durataWeight: number;
+  contestoWeight: number;
+  gruppoWeight: number;
+  obiettivoWeight: number;
+  dominantThreshold: number; // 0-1, soglia che definisce quando un profilo è dominante
+}
+
+export interface FamilyTriggerRules {
+  enabled: boolean;
+  triggerSignals: string[]; // es. ["gruppo:famiglia", "richiesta:gioco", "eta:bambini"]
+  triggerDescription: string;
+  recommendedPois: string[]; // POI id da evidenziare quando attivato
+}
+
+export interface VisitorSignalModel {
+  passioni: string[]; // lista passioni rilevanti per il progetto
+  modalitaFruizione: string[]; // "rapido" / "profondo" / "essenziale" / "ricco" / ...
+  durataOptions: string[]; // es. ["30 min", "1 ora", "2+ ore"]
+  contestoOptions: string[]; // es. ["visita singola", "evento", "gita scolastica"]
+  gruppoOptions: string[]; // es. ["solo", "coppia", "famiglia", "amici", "scolaresca"]
+  obiettiviOptions: string[]; // es. ["svago", "studio", "fotografia"]
+}
+
+export interface WizardInteractionRules {
+  minSelectionsRequired: number; // es. 2
+  maxPointsTotal: number; // es. 10 (punti da distribuire)
+  maxPointsPerOption: number; // es. 5 (massimale per singola passione)
+  forceRanking: boolean; // forza ordine priorità
+}
+
+export interface ProjectDriversPersonas {
+  drivers: Driver[];
+  personas: Persona[];
+  matrix: DriverPersonaWeight[];
+  lenses: EditorialLens[];
+  continuityRules: NarrativeContinuityRule[];
+  dominanceRules: DominanceRules;
+  inferenceModel: InferenceModel;
+  familyTriggerRules: FamilyTriggerRules;
+  visitorSignalModel: VisitorSignalModel;
+  wizardInteractionRules: WizardInteractionRules;
+  generatedAt?: string;
+  updatedAt?: string;
+}
+
+export function emptyDriversPersonas(): ProjectDriversPersonas {
+  return {
+    drivers: [],
+    personas: [],
+    matrix: [],
+    lenses: [],
+    continuityRules: [],
+    dominanceRules: {
+      maxSecondaryDrivers: 2,
+      minDominanceScore: 0.5,
+      blendThreshold: 0.7,
+    },
+    inferenceModel: {
+      passioneWeight: 0.3,
+      modalitaWeight: 0.2,
+      durataWeight: 0.15,
+      contestoWeight: 0.1,
+      gruppoWeight: 0.15,
+      obiettivoWeight: 0.1,
+      dominantThreshold: 0.5,
+    },
+    familyTriggerRules: {
+      enabled: false,
+      triggerSignals: [],
+      triggerDescription: "",
+      recommendedPois: [],
+    },
+    visitorSignalModel: {
+      passioni: [],
+      modalitaFruizione: [],
+      durataOptions: [],
+      contestoOptions: [],
+      gruppoOptions: [],
+      obiettiviOptions: [],
+    },
+    wizardInteractionRules: {
+      minSelectionsRequired: 2,
+      maxPointsTotal: 10,
+      maxPointsPerOption: 5,
+      forceRanking: true,
+    },
+  };
+}
+
+function normalizeDriversPersonas(
+  raw: Partial<ProjectDriversPersonas> | undefined,
+): ProjectDriversPersonas {
+  const base = emptyDriversPersonas();
+  if (!raw) return base;
+  return {
+    drivers: Array.isArray(raw.drivers) ? raw.drivers : base.drivers,
+    personas: Array.isArray(raw.personas) ? raw.personas : base.personas,
+    matrix: Array.isArray(raw.matrix) ? raw.matrix : base.matrix,
+    lenses: Array.isArray(raw.lenses) ? raw.lenses : base.lenses,
+    continuityRules: Array.isArray(raw.continuityRules)
+      ? raw.continuityRules
+      : base.continuityRules,
+    dominanceRules: { ...base.dominanceRules, ...(raw.dominanceRules ?? {}) },
+    inferenceModel: {
+      ...base.inferenceModel,
+      ...(raw.inferenceModel ?? {}),
+    },
+    familyTriggerRules: {
+      ...base.familyTriggerRules,
+      ...(raw.familyTriggerRules ?? {}),
+    },
+    visitorSignalModel: {
+      ...base.visitorSignalModel,
+      ...(raw.visitorSignalModel ?? {}),
+    },
+    wizardInteractionRules: {
+      ...base.wizardInteractionRules,
+      ...(raw.wizardInteractionRules ?? {}),
+    },
+    generatedAt: raw.generatedAt,
+    updatedAt: raw.updatedAt,
+  };
+}
+
+export async function loadDriversPersonas(
+  projectId: string,
+): Promise<ProjectDriversPersonas | undefined> {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const raw = await idbGet<Partial<ProjectDriversPersonas>>(
+      DRIVERS_STORE,
+      projectId,
+    );
+    if (!raw) return undefined;
+    return normalizeDriversPersonas(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function saveDriversPersonas(
+  projectId: string,
+  data: ProjectDriversPersonas,
+): Promise<{ ok: true } | { ok: false; reason: "unknown" }> {
+  try {
+    await idbSet(DRIVERS_STORE, projectId, {
+      ...data,
+      updatedAt: new Date().toISOString(),
+    });
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: "unknown" };
+  }
 }

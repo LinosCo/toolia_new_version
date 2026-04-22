@@ -3,7 +3,7 @@ import OpenAI from "openai";
 
 type Provider = "kimi" | "openai";
 type Category = "solido" | "interpretazione" | "memoria" | "ipotesi";
-type SourceKind = "sito" | "documento" | "intervista";
+type SourceKind = "sito" | "documento" | "intervista" | "planimetria";
 
 interface SourceSito {
   kind: "sito";
@@ -29,10 +29,21 @@ interface SourceIntervista {
   importance: string;
   reliability: string;
 }
-type InputSource = SourceSito | SourceDoc | SourceIntervista;
+interface SourcePlanimetria {
+  kind: "planimetria";
+  text: string;
+  spatialHints?: string[];
+  importance: string;
+  reliability: string;
+}
+type InputSource =
+  | SourceSito
+  | SourceDoc
+  | SourceIntervista
+  | SourcePlanimetria;
 
 const SYSTEM = `Sei un analista di contenuti culturali. Estrai da UNA singola fonte la lista più ricca possibile di FATTI ATOMICI classificati.
-Ogni fatto è una frase autoconsistente, breve (10-40 parole), riferibile a UNA sola affermazione. Punta alla granularità massima: date, misure, nomi propri, toponimi, numeri, tecniche costruttive, materiali, eventi storici, aneddoti, citazioni del gestore, storie personali, dettagli sensoriali.`;
+Ogni fatto è una frase autoconsistente, breve (10-40 parole), riferibile a UNA sola affermazione. Punta alla granularità massima: date, misure, nomi propri, toponimi, numeri, tecniche costruttive, materiali, eventi storici, aneddoti, citazioni del gestore, storie personali, dettagli sensoriali, elementi spaziali osservabili.`;
 
 function weightOf(importance: string, reliability: string): number {
   const i = importance === "primaria" ? 3 : importance === "secondaria" ? 2 : 1;
@@ -42,13 +53,15 @@ function weightOf(importance: string, reliability: string): number {
 
 function buildPrompt(
   s: InputSource,
-  poi: { n: number; name: string }[] | undefined,
+  spatialHints: string[] | undefined,
   project: { name: string; type?: string; city?: string },
 ): { user: string; sourceIdHint: string } {
   const w = weightOf(s.importance, s.reliability);
-  const poiBlock =
-    poi && poi.length
-      ? `POI noti del luogo:\n${poi.map((p) => `${p.n}. ${p.name}`).join("\n")}\n\n`
+
+  // Spunti spaziali cross-fonti (dalla planimetria) mostrati come guida testuale, NON come POI committati.
+  const hintsBlock =
+    spatialHints && spatialHints.length
+      ? `Spunti spaziali osservati (dalla planimetria del luogo, non ancora confermati come POI): ${spatialHints.join(", ")}.\n\n`
       : "";
 
   let body = "";
@@ -63,7 +76,7 @@ function buildPrompt(
     sourceIdHint = s.id;
     sourceLabel = `documento "${s.name}"`;
     body = s.text.slice(0, 40000);
-  } else {
+  } else if (s.kind === "intervista") {
     sourceIdHint = "intervista";
     sourceLabel = `intervista a ${s.respondentLabel}`;
     if (s.mode === "trascrizione") {
@@ -74,11 +87,19 @@ function buildPrompt(
         .map((q) => `Q: ${q.question}\nA: ${q.answer}\n[qaId=${q.id}]`)
         .join("\n\n");
     }
+  } else {
+    // planimetria
+    sourceIdHint = "planimetria";
+    sourceLabel = "descrizione della planimetria/mappa del luogo";
+    const hints = s.spatialHints?.length
+      ? `\n\nAmbienti osservati sulla planimetria: ${s.spatialHints.join(", ")}.`
+      : "";
+    body = `${s.text.slice(0, 40000)}${hints}`;
   }
 
   const user = `Luogo: ${project.name}${project.type ? ` (${project.type})` : ""}${project.city ? ` — ${project.city}` : ""}
 
-${poiBlock}Fonte da analizzare — tipo: ${sourceLabel} · peso ${w}/9 (importanza=${s.importance}, affidabilità=${s.reliability})
+${hintsBlock}Fonte da analizzare — tipo: ${sourceLabel} · peso ${w}/9 (importanza=${s.importance}, affidabilità=${s.reliability})
 sourceId="${sourceIdHint}"
 
 CONTENUTO:
@@ -99,11 +120,11 @@ Categorie di fatti da cercare:
 - Dettagli architettonici (volte, piazzole, feritoie, corazzature)
 - Curiosità, tradizioni locali, leggende, citazioni dirette
 - Dati amministrativi (orari, biglietti, gestione attuale)
+- Se la fonte è una planimetria: struttura spaziale osservabile (numero piani, ambienti, percorsi indicati, accessi, orientamento) — fatti spaziali descrittivi, non coordinate.
 
 Per ogni fatto produci:
 - "content": frase autoconsistente 10-40 parole
 - "category": "solido" | "interpretazione" | "memoria" | "ipotesi"
-- "poiRef": numero POI tra quelli noti sopra, oppure null
 - "sourceQaId": SOLO se questa fonte è un'intervista in modalità qa e il fatto viene da una domanda specifica, riporta il qaId; altrimenti null
 
 Regole categoria:
@@ -112,8 +133,10 @@ Regole categoria:
 - Tradizione orale, racconto personale dell'intervistato, aneddoto locale → "memoria"
 - Incertezza ("forse", "sembra", "si dice"), peso basso → "ipotesi"
 
+IMPORTANTE: NON assegnare POI ai fatti. Gli spunti spaziali mostrati sopra sono solo contesto — i punti di interesse definitivi verranno decisi in una fase successiva, incrociando tutte le fonti.
+
 Rispondi ESCLUSIVAMENTE in JSON:
-{ "facts": [ { "content": "...", "category": "solido", "poiRef": 3, "sourceQaId": null }, ... ] }
+{ "facts": [ { "content": "...", "category": "solido", "sourceQaId": null }, ... ] }
 
 Non includere duplicati esatti all'interno di questa stessa estrazione (ma va bene avere fatti simili con sfumature diverse: es. "Il forte ha 380 uomini di guarnigione" e "La guarnigione del 7° reggimento artiglieria da fortezza era di 380 uomini" sono entrambi utili).
 
@@ -146,7 +169,7 @@ export async function POST(req: NextRequest) {
       projectName,
       type,
       city,
-      poi,
+      spatialHints,
       source,
     }: {
       apiKey?: string;
@@ -154,7 +177,7 @@ export async function POST(req: NextRequest) {
       projectName?: string;
       type?: string;
       city?: string;
-      poi?: { n: number; name: string }[];
+      spatialHints?: string[];
       source?: InputSource;
     } = body;
 
@@ -171,7 +194,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "missing_fields" }, { status: 400 });
     }
 
-    const { user, sourceIdHint } = buildPrompt(source, poi, {
+    const { user, sourceIdHint } = buildPrompt(source, spatialHints, {
       name: projectName,
       type,
       city,
@@ -219,7 +242,6 @@ export async function POST(req: NextRequest) {
             const x = f as {
               content?: string;
               category?: string;
-              poiRef?: number | null;
               sourceQaId?: string | null;
             };
             if (typeof x.content !== "string" || !x.content.trim()) return null;
@@ -236,10 +258,6 @@ export async function POST(req: NextRequest) {
                 sourceKind === "intervista" && typeof x.sourceQaId === "string"
                   ? x.sourceQaId
                   : sourceIdHint,
-              poiRef:
-                typeof x.poiRef === "number" && x.poiRef > 0
-                  ? x.poiRef
-                  : undefined,
             };
           })
           .filter((x) => x !== null)

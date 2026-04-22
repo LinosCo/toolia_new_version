@@ -10,11 +10,13 @@ import {
   loadSources,
   loadBrief,
   loadMap,
+  loadDriversPersonas,
   sourcesCompletion,
   StoredProject,
   ProjectSources,
   ProjectBrief,
   ProjectMap,
+  ProjectDriversPersonas,
 } from "@/lib/project-store";
 
 export default function ProjectLayout({
@@ -34,21 +36,26 @@ export default function ProjectLayout({
   });
   const [brief, setBrief] = useState<ProjectBrief | undefined>(undefined);
   const [map, setMap] = useState<ProjectMap | undefined>(undefined);
+  const [drivers, setDrivers] = useState<ProjectDriversPersonas | undefined>(
+    undefined,
+  );
 
   useEffect(() => {
     let alive = true;
     const refresh = async () => {
       const p = loadProject(id) ?? null;
-      const [s, b, m] = await Promise.all([
+      const [s, b, m, d] = await Promise.all([
         loadSources(id),
         loadBrief(id),
         loadMap(id),
+        loadDriversPersonas(id),
       ]);
       if (!alive) return;
       setProject(p);
       setSources(s);
       setBrief(b);
       setMap(m);
+      setDrivers(d);
     };
     refresh();
 
@@ -59,18 +66,16 @@ export default function ProjectLayout({
     window.addEventListener("toolia:sources-updated", onStorage);
     window.addEventListener("toolia:brief-updated", onStorage);
     window.addEventListener("toolia:map-updated", onStorage);
+    window.addEventListener("toolia:drivers-updated", onStorage);
     return () => {
       alive = false;
       window.removeEventListener("storage", onStorage);
       window.removeEventListener("toolia:sources-updated", onStorage);
       window.removeEventListener("toolia:brief-updated", onStorage);
       window.removeEventListener("toolia:map-updated", onStorage);
+      window.removeEventListener("toolia:drivers-updated", onStorage);
     };
   }, [id]);
-
-  const placedPois = (map?.pois ?? []).filter(
-    (p) => typeof p.lat === "number" && typeof p.lng === "number",
-  ).length;
 
   const briefComplete =
     !!brief &&
@@ -83,9 +88,9 @@ export default function ProjectLayout({
     fonti: sourcesCompletion(sources) >= 2,
     brief: briefComplete,
     luogo: (map?.pois.length ?? 0) >= 1,
-    storytelling: false,
-    schede: false,
-    pubblica: false,
+    driver:
+      (drivers?.drivers.length ?? 0) >= 1 &&
+      (drivers?.personas.length ?? 0) >= 1,
   };
 
   if (project === undefined) {
