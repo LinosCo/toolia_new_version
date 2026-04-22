@@ -1,5 +1,7 @@
-// Toolia Studio — schema Prisma (MVP iniziale)
-// Entità verranno aggiunte progressivamente seguendo gli step in ../docs/spec/02-flusso-inserimento-dati.md
+// Toolia Studio — schema Prisma
+// Fonte di verità: docs/spec/03-data-model.md
+// Questo schema copre Fasi 1-4 (Auth, Tenant/Project, Fonti/KB, Brief, Luogo, Driver/Personas).
+// Fase 5+ (Schede, TTS, Path, Theme, Job) ha modelli minimali estendibili.
 
 generator client {
   provider = "prisma-client"
@@ -11,13 +13,15 @@ datasource db {
 }
 
 // ============================================================
-// AUTH (NextAuth + credenziali email/password)
+// AUTH (NextAuth v5 + email magic link + credenziali opzionali)
 // ============================================================
 
 model User {
   id            String    @id @default(cuid())
   email         String    @unique
+  emailVerified DateTime?
   name          String?
+  image         String?
   passwordHash  String?
   role          Role      @default(Editor)
   tenantId      String
@@ -36,12 +40,12 @@ model Account {
   type              String
   provider          String
   providerAccountId String
-  refresh_token     String?
-  access_token      String?
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
   expires_at        Int?
   token_type        String?
   scope             String?
-  id_token          String?
+  id_token          String? @db.Text
   session_state     String?
   user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -77,13 +81,15 @@ enum Role {
 // ============================================================
 
 model Tenant {
-  id           String    @id @default(cuid())
-  name         String
-  settingsJson Json      @default("{}")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  users        User[]
-  projects     Project[]
+  id            String         @id @default(cuid())
+  name          String
+  settingsJson  Json           @default("{}") // include apiKeys per tenant
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  users         User[]
+  projects      Project[]
+  clients       ClientEntity[]
+  jobs          Job[]
 }
 
 model Project {
@@ -93,14 +99,32 @@ model Project {
   name         String
   type         ProjectType   @default(museo)
   status       ProjectStatus @default(draft)
-  spatialMode  SpatialMode   @default(gps)
+  spatialMode  SpatialMode   @default(hybrid)
   languages    String[]      @default(["it"])
+  coverImage   String?
+  address      String?
+  mapsLink     String?
+  city         String?
   settingsJson Json          @default("{}")
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
+
   sources      Source[]
   interviews   Interview[]
   kbFacts      KBFact[]
+  brief        Brief?
+  zones        Zone[]
+  pois         POI[]
+  anchors      MapAnchor[]
+  drivers      Driver[]
+  personas     Persona[]
+  lenses       EditorialLens[]
+  driverConfig ProjectDriverConfig?
+  narrators    NarratorProfile[]
+  paths        Path[]
+  schede       Scheda[]
+  themes       Theme[]
+  jobs         Job[]
 
   @@index([tenantId])
 }
@@ -111,11 +135,14 @@ enum ProjectType {
   cantina
   citta
   parco
+  territorio
   altro
 }
 
 enum ProjectStatus {
   draft
+  in_review
+  client_review
   published
   archived
 }
@@ -126,22 +153,34 @@ enum SpatialMode {
   hybrid
 }
 
+model ClientEntity {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  metadataJson Json     @default("{}")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tenantId])
+}
+
 // ============================================================
 // STEP 1 — Fonti, Interviste, Knowledge Base
 // ============================================================
 
 model Source {
-  id           String             @id @default(cuid())
+  id           String            @id @default(cuid())
   projectId    String
-  project      Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
   kind         SourceKind
   title        String
-  rawContent   String             @db.Text
-  importance   SourceImportance   @default(secondaria)
-  reliability  SourceReliability  @default(media)
-  metadataJson Json               @default("{}")
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  rawContent   String            @db.Text
+  importance   SourceImportance  @default(secondaria)
+  reliability  SourceReliability @default(media)
+  metadataJson Json              @default("{}")
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
   kbFacts      KBFact[]
 
   @@index([projectId])
@@ -152,6 +191,9 @@ enum SourceKind {
   pdf
   text
   wordpress
+  image
+  planimetria
+  interview
 }
 
 enum SourceImportance {
@@ -186,19 +228,342 @@ model KBFact {
   project    Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   sourceId   String?
   source     Source?   @relation(fields: [sourceId], references: [id], onDelete: SetNull)
-  kind       FactKind
-  value      String    @db.Text
-  confidence Float     @default(0.5)
+  category   FactCategory
+  content    String    @db.Text
+  importance SourceImportance @default(secondaria)
+  reliability SourceReliability @default(media)
+  poiRef     Int?
+  approved   Boolean   @default(false)
   tags       String[]  @default([])
   createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
   @@index([projectId])
   @@index([sourceId])
 }
 
-enum FactKind {
-  fact
-  interpretation
-  tradition
-  hypothesis
+enum FactCategory {
+  solido
+  interpretazione
+  memoria
+  ipotesi
+}
+
+// ============================================================
+// STEP 2 — Brief strategico
+// ============================================================
+
+model Brief {
+  id                    String   @id @default(cuid())
+  projectId             String   @unique
+  project               Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  obiettivo             String   @db.Text
+  obiettivoCliente      String   @db.Text
+  tipoEsperienza        String
+  contenutoJson         Json     @default("{}") // intero brief strutturato (policy fonti, criteri ammissibilità, visitorQuestions, ecc.)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+}
+
+// ============================================================
+// STEP 3 — Luogo, Zone, POI, Anchors
+// ============================================================
+
+model Zone {
+  id                String       @id @default(cuid())
+  projectId         String
+  project           Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name              String
+  narrativePromise  String?      @db.Text
+  function          ZoneFunction
+  color             String?      // hex per UI
+  order             Int          @default(0)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  pois              POI[]
+
+  @@index([projectId])
+}
+
+enum ZoneFunction {
+  apertura
+  sviluppo
+  climax
+  chiusura
+}
+
+model POI {
+  id              String   @id @default(cuid())
+  projectId       String
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  zoneId          String?
+  zone            Zone?    @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  name            String
+  type            PoiType  @default(indoor)
+  lat             Float?
+  lng             Float?
+  planimetriaX    Float?   // coordinata X normalizzata 0-1 su planimetria
+  planimetriaY    Float?
+  description     String?  @db.Text
+  minStaySeconds  Int      @default(60)
+  imageUrl        String?
+  orderIndex      Int      @default(0)
+  evidence        String[] @default([]) // sourceIds che attestano il POI
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  schede          Scheda[]
+
+  @@index([projectId])
+  @@index([zoneId])
+}
+
+enum PoiType {
+  indoor
+  outdoor
+}
+
+model MapAnchor {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  label        String
+  planimetriaX Float
+  planimetriaY Float
+  lat          Float
+  lng          Float
+  createdAt    DateTime @default(now())
+
+  @@index([projectId])
+}
+
+// ============================================================
+// STEP 4 — Driver, Personas, Lenti editoriali
+// ============================================================
+
+model Driver {
+  id              String          @id @default(cuid())
+  projectId       String
+  project         Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  domain          String          // storia / arte / natura / produzione / ...
+  description     String          @db.Text
+  narrativeValue  String          @db.Text
+  isPrimary       Boolean         @default(false)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  weights         DriverPersonaWeight[]
+  lenses          EditorialLens[]
+
+  @@index([projectId])
+}
+
+model Persona {
+  id                 String   @id @default(cuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name               String
+  motivation         String   @db.Text
+  payoff             PayoffType
+  preferredDuration  DurationPreference
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  weights            DriverPersonaWeight[]
+  lenses             EditorialLens[]
+
+  @@index([projectId])
+}
+
+enum PayoffType {
+  wonder
+  knowledge
+  emotion
+  discovery
+}
+
+enum DurationPreference {
+  short
+  medium
+  long
+}
+
+model DriverPersonaWeight {
+  id         String   @id @default(cuid())
+  driverId   String
+  driver     Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  personaId  String
+  persona    Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  weight     Int      // 0-10
+
+  @@unique([driverId, personaId])
+}
+
+model EditorialLens {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  driverId   String
+  driver     Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  personaId  String
+  persona    Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  tone       String?  @db.Text
+  createdAt  DateTime @default(now())
+
+  @@unique([driverId, personaId, projectId])
+  @@index([projectId])
+}
+
+// Tutti gli altri artefatti Step 3 legacy (narrativeContinuity, dominance,
+// inference, family trigger, visitor signal, wizard rules) vivono in JSON
+// perché cambiano forma nel tempo.
+model ProjectDriverConfig {
+  id                        String   @id @default(cuid())
+  projectId                 String   @unique
+  project                   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  narrativeContinuityJson   Json     @default("{}")
+  dominanceRulesJson        Json     @default("{}")
+  inferenceModelJson        Json     @default("{}")
+  familyTriggerRulesJson    Json     @default("{}")
+  visitorSignalModelJson    Json     @default("{}")
+  wizardInteractionJson     Json     @default("{}")
+  generatedAt               DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+}
+
+// ============================================================
+// STEP 5+ — Percorsi, Narratori, Schede, Audio (placeholder minimali)
+// ============================================================
+
+model NarratorProfile {
+  id               String   @id @default(cuid())
+  projectId        String
+  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  voiceStyle       String
+  language         String
+  characterBio     String?  @db.Text
+  preferredDrivers String[] @default([])
+  voiceModel       String?  // openai-tts / elevenlabs-...
+  voiceId          String?  // provider-specific
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  schede           Scheda[]
+  paths            Path[]
+
+  @@index([projectId])
+}
+
+model Theme {
+  id          String   @id @default(cuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name        String
+  description String   @db.Text
+  createdAt   DateTime @default(now())
+
+  @@index([projectId])
+}
+
+model Path {
+  id                     String   @id @default(cuid())
+  projectId              String
+  project                Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                   String
+  description            String   @db.Text
+  durationTargetMinutes  Int?
+  poiOrderJson           Json     @default("[]")
+  narratorId             String?
+  narrator               NarratorProfile? @relation(fields: [narratorId], references: [id], onDelete: SetNull)
+  themeFocus             String?
+  chaptersJson           Json     @default("[]")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model Scheda {
+  id                      String       @id @default(cuid())
+  projectId               String
+  project                 Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  poiId                   String
+  poi                     POI          @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  narratorId              String
+  narrator                NarratorProfile @relation(fields: [narratorId], references: [id], onDelete: Cascade)
+  language                String
+  title                   String
+  scriptText              String       @db.Text
+  durationEstimateSeconds Int?
+  isCore                  Boolean      @default(true)
+  isDeepDive              Boolean      @default(false)
+  status                  SchedaStatus @default(draft)
+  version                 Int          @default(1)
+  qualityScore            Float?
+  semanticBaseJson        Json         @default("{}")
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  audio                   AudioAsset?
+
+  @@unique([poiId, narratorId, language])
+  @@index([projectId])
+}
+
+enum SchedaStatus {
+  draft
+  in_review
+  client_review
+  published
+  archived
+}
+
+model AudioAsset {
+  id              String   @id @default(cuid())
+  schedaId        String   @unique
+  scheda          Scheda   @relation(fields: [schedaId], references: [id], onDelete: Cascade)
+  fileUrl         String
+  durationSeconds Float
+  voiceModel      String
+  isStale         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+// ============================================================
+// JOB — task asincroni (LLM, TTS, export)
+// ============================================================
+
+model Job {
+  id          String    @id @default(cuid())
+  tenantId    String
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projectId   String?
+  project     Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  type        JobType
+  status      JobStatus @default(queued)
+  progress    Float     @default(0)
+  payloadJson Json      @default("{}")
+  resultJson  Json?
+  error       String?   @db.Text
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([tenantId])
+  @@index([projectId])
+  @@index([status])
+}
+
+enum JobType {
+  kb_extract
+  brief_generate
+  luogo_propose
+  drivers_propose
+  scheda_generate
+  tts
+  export
+}
+
+enum JobStatus {
+  queued
+  running
+  completed
+  failed
 }
