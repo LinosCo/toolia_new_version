@@ -23,9 +23,23 @@ declare module "@auth/core/jwt" {
   }
 }
 
+// Whitelist admin — possono registrarsi + diventano Admin.
+// TODO: sostituire con sistema Invitation DB-based in Fase 2.
+const ADMIN_EMAILS = (
+  process.env.ADMIN_EMAILS ?? "social@linosandco.com,tommaso@linos.co"
+)
+  .split(",")
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
+
+function isAllowedEmail(email: string): boolean {
+  return ADMIN_EMAILS.includes(email.toLowerCase());
+}
+
 // Adapter standard con override di createUser per assegnare Tenant + Role.
-// Primo utente mai registrato → crea Tenant "Toolia" e diventa Admin.
-// Utenti successivi → attaccati al primo Tenant come Editor.
+// - Primo utente mai registrato → Admin, crea Tenant "Toolia"
+// - Email in ADMIN_EMAILS → Admin
+// - Altri → Editor (ma il signIn callback blocca se non whitelist)
 const baseAdapter = PrismaAdapter(prisma);
 const adapter = {
   ...baseAdapter,
@@ -40,7 +54,9 @@ const adapter = {
     if (!tenant) {
       tenant = await prisma.tenant.create({ data: { name: "Toolia" } });
     }
-    const role: Role = existingUsers === 0 ? "Admin" : "Editor";
+    const isFirst = existingUsers === 0;
+    const isAdmin = isAllowedEmail(data.email);
+    const role: Role = isFirst || isAdmin ? "Admin" : "Editor";
     const user = await prisma.user.create({
       data: {
         email: data.email,
@@ -74,6 +90,18 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   callbacks: {
     ...authConfig.callbacks,
+    async signIn({ user }) {
+      if (!user.email) return false;
+      const email = user.email.toLowerCase();
+      // Utenti già in DB → sempre autorizzati (anche se poi rimossi da ADMIN_EMAILS)
+      const existing = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+      if (existing) return true;
+      // Nuovi utenti → solo se in whitelist admin
+      return isAllowedEmail(email);
+    },
     async jwt({ token, user }) {
       // Primo login (user presente) → salva id, tenantId, role nel JWT
       if (user?.email) {
