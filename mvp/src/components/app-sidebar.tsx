@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FolderKanban, Settings, LogOut, ChevronsUpDown } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -19,8 +20,25 @@ const secondaryNav = [
   { href: "/impostazioni", label: "Impostazioni", icon: Settings },
 ];
 
+function getInitials(
+  name: string | null | undefined,
+  email: string | null | undefined,
+): string {
+  if (name) {
+    const parts = name.trim().split(/\s+/);
+    return (
+      (parts[0]?.[0] ?? "").toUpperCase() + (parts[1]?.[0] ?? "").toUpperCase()
+    );
+  }
+  return (email?.[0] ?? "?").toUpperCase();
+}
+
 export function AppSidebar() {
   const pathname = usePathname();
+  const { data: session } = useSession();
+  const user = session?.user;
+  const displayName = user?.name ?? user?.email?.split("@")[0] ?? "Utente";
+  const initials = getInitials(user?.name, user?.email);
 
   return (
     <aside className="hidden md:flex fixed inset-y-0 left-0 w-64 flex-col border-r border-border bg-sidebar">
@@ -113,28 +131,28 @@ export function AppSidebar() {
         <DropdownMenu>
           <DropdownMenuTrigger className="w-full flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-sidebar-accent transition-colors">
             <div className="h-9 w-9 rounded-full bg-brand/15 text-brand flex items-center justify-center text-sm font-medium">
-              AB
+              {initials}
             </div>
             <div className="flex-1 text-left min-w-0">
-              <p className="text-sm font-medium truncate">Alessandro</p>
+              <p className="text-sm font-medium truncate">{displayName}</p>
               <p className="text-xs text-muted-foreground truncate">
-                social@linosandco.com
+                {user?.email ?? ""}
               </p>
             </div>
             <ChevronsUpDown className="h-4 w-4 text-muted-foreground shrink-0" />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" side="top" className="w-56">
             <DropdownMenuLabel className="font-normal">
-              <p className="text-sm font-medium">Alessandro Borsato</p>
+              <p className="text-sm font-medium">{displayName}</p>
               <p className="text-xs text-muted-foreground">
-                Linos &amp; Co · Admin
+                {user?.role ?? "—"}
               </p>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>Impostazioni account</DropdownMenuItem>
-            <DropdownMenuItem>Team e permessi</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="text-destructive focus:text-destructive">
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+            >
               <LogOut className="h-4 w-4 mr-2" />
               Esci
             </DropdownMenuItem>
