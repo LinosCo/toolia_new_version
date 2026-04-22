@@ -1233,3 +1233,141 @@ export async function saveDriversPersonas(
     return { ok: false, reason: "unknown" };
   }
 }
+
+/* ============================================================== */
+/* ================ EXPORT / IMPORT PROGETTI ==================== */
+/* ============================================================== */
+
+export interface ProjectBackup {
+  project: StoredProject;
+  progress: ProjectProgress;
+  sources: ProjectSources;
+  kb: ProjectKB;
+  brief?: ProjectBrief;
+  map?: ProjectMap;
+  drivers?: ProjectDriversPersonas;
+}
+
+export interface ToolialBackup {
+  version: 1;
+  exportedAt: string;
+  projects: ProjectBackup[];
+}
+
+export async function exportAllProjects(): Promise<ToolialBackup> {
+  const allProjects = loadProjects();
+  const backups: ProjectBackup[] = [];
+  for (const p of allProjects) {
+    const [sources, kb, brief, map, drivers] = await Promise.all([
+      loadSources(p.id),
+      loadKB(p.id),
+      loadBrief(p.id),
+      loadMap(p.id),
+      loadDriversPersonas(p.id),
+    ]);
+    backups.push({
+      project: p,
+      progress: loadProgress(p.id),
+      sources,
+      kb,
+      brief,
+      map,
+      drivers,
+    });
+  }
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    projects: backups,
+  };
+}
+
+export interface ImportResult {
+  imported: number;
+  skipped: number;
+  errors: string[];
+}
+
+export async function importProjects(
+  raw: unknown,
+  mode: "merge" | "replace",
+): Promise<ImportResult> {
+  const errors: string[] = [];
+  if (!raw || typeof raw !== "object") {
+    return { imported: 0, skipped: 0, errors: ["JSON non valido"] };
+  }
+  const r = raw as Partial<ToolialBackup>;
+  if (r.version !== 1 || !Array.isArray(r.projects)) {
+    return {
+      imported: 0,
+      skipped: 0,
+      errors: ["Formato non riconosciuto"],
+    };
+  }
+
+  const existing = loadProjects();
+  const existingById = new Map(existing.map((p) => [p.id, p]));
+
+  let imported = 0;
+  let skipped = 0;
+
+  for (const b of r.projects) {
+    if (!b?.project?.id || !b?.project?.name) {
+      skipped++;
+      continue;
+    }
+    const existingP = existingById.get(b.project.id);
+    if (existingP && mode === "merge") {
+      // merge: non sovrascrive esistente a meno che tutti i dati siano vuoti
+      skipped++;
+      continue;
+    }
+    try {
+      // Salva metadata progetto in localStorage
+      existingById.set(b.project.id, b.project);
+      // Progress
+      if (b.progress) {
+        localStorage.setItem(
+          `toolia-project-${b.project.id}-progress`,
+          JSON.stringify(b.progress),
+        );
+      }
+      // IndexedDB stores
+      if (b.sources) await idbSet(SOURCES_STORE, b.project.id, b.sources);
+      if (b.kb) await idbSet(KB_STORE, b.project.id, b.kb);
+      if (b.brief) await idbSet(BRIEF_STORE, b.project.id, b.brief);
+      if (b.map) await idbSet(MAP_STORE, b.project.id, b.map);
+      if (b.drivers) await idbSet(DRIVERS_STORE, b.project.id, b.drivers);
+      imported++;
+    } catch (e) {
+      errors.push(
+        `${b.project.name}: ${e instanceof Error ? e.message : "errore salvataggio"}`,
+      );
+      skipped++;
+    }
+  }
+
+  // Persisti lista progetti aggiornata
+  try {
+    localStorage.setItem(
+      PROJECTS_KEY,
+      JSON.stringify(Array.from(existingById.values())),
+    );
+  } catch (e) {
+    errors.push(
+      `Errore salvataggio lista progetti: ${e instanceof Error ? e.message : "unknown"}`,
+    );
+  }
+
+  // Notifica la UI
+  try {
+    window.dispatchEvent(new Event("toolia:sources-updated"));
+    window.dispatchEvent(new Event("toolia:brief-updated"));
+    window.dispatchEvent(new Event("toolia:map-updated"));
+    window.dispatchEvent(new Event("toolia:drivers-updated"));
+  } catch {
+    // SSR safety
+  }
+
+  return { imported, skipped, errors };
+}
