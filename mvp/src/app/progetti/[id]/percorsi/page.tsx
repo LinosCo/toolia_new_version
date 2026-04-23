@@ -82,6 +82,15 @@ interface PathItem {
   narratorId: string | null;
   themeFocus: string | null;
   chaptersJson: PathChapter[];
+  bridgesJson: PathBridge[];
+}
+
+interface PathBridge {
+  fromPoiId: string;
+  toPoiId: string;
+  navigation: string;
+  body: string;
+  lensAccent?: string;
 }
 
 interface AdaptationRules {
@@ -1475,9 +1484,205 @@ function PathCard({
               </div>
             )}
           </div>
+
+          {/* Bridges — raccordi fra POI */}
+          <BridgesSection
+            path={local}
+            narrators={[]}
+            poiById={poiById}
+            onChange={(bridges) => persist({ bridgesJson: bridges })}
+            project={null}
+          />
         </div>
       )}
     </article>
+  );
+}
+
+/* ─────────── Bridges ─────────── */
+
+function BridgesSection({
+  path,
+  poiById,
+  onChange,
+}: {
+  path: PathItem;
+  narrators: Narrator[];
+  poiById: Map<string, { id: string; name: string }>;
+  onChange: (bridges: PathBridge[]) => void;
+  project: ProjectInfo | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  const keys = typeof window !== "undefined" ? loadApiKeys() : null;
+  const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
+    ? "openai"
+    : keys?.llm.kimi
+      ? "kimi"
+      : null;
+
+  const pairs: [string, string][] = [];
+  for (let i = 0; i < path.poiOrderJson.length - 1; i++) {
+    pairs.push([path.poiOrderJson[i], path.poiOrderJson[i + 1]]);
+  }
+
+  const bridgeFor = (from: string, to: string) =>
+    (path.bridgesJson ?? []).find(
+      (b) => b.fromPoiId === from && b.toPoiId === to,
+    );
+
+  const updateBridge = (
+    from: string,
+    to: string,
+    patch: Partial<PathBridge>,
+  ) => {
+    const existing = path.bridgesJson ?? [];
+    const idx = existing.findIndex(
+      (b) => b.fromPoiId === from && b.toPoiId === to,
+    );
+    let next: PathBridge[];
+    if (idx >= 0) {
+      next = [...existing];
+      next[idx] = { ...next[idx], ...patch };
+    } else {
+      next = [
+        ...existing,
+        {
+          fromPoiId: from,
+          toPoiId: to,
+          navigation: "",
+          body: "",
+          ...patch,
+        },
+      ];
+    }
+    onChange(next);
+  };
+
+  const generate = async () => {
+    if (!keys || !activeProvider || generating) return;
+    if (pairs.length === 0) return;
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/ai/generate-bridges", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey: keys.llm[activeProvider],
+          provider: activeProvider,
+          path: {
+            id: path.id,
+            name: path.name,
+            description: path.description,
+            themeFocus: path.themeFocus,
+          },
+          poiOrder: path.poiOrderJson
+            .map((pid) => poiById.get(pid))
+            .filter(Boolean)
+            .map((p) => ({ id: p!.id, name: p!.name })),
+        }),
+      });
+      const data = await r.json();
+      if (r.ok && Array.isArray(data.bridges)) {
+        onChange(data.bridges as PathBridge[]);
+      }
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  if (pairs.length === 0) return null;
+
+  return (
+    <div className="pt-3 border-t border-border/60 space-y-3">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-2 text-left"
+        >
+          <ChevronDown
+            className={cn(
+              "h-3 w-3 text-muted-foreground transition-transform",
+              expanded ? "rotate-180" : "",
+            )}
+            strokeWidth={1.8}
+          />
+          <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
+            Raccordi fra POI ({(path.bridgesJson ?? []).length}/{pairs.length})
+          </p>
+        </button>
+        {activeProvider && (
+          <button
+            type="button"
+            onClick={generate}
+            disabled={generating}
+            className={cn(
+              "h-7 px-3 rounded-full text-[11px] font-medium transition-colors",
+              generating
+                ? "bg-muted text-muted-foreground cursor-wait"
+                : "bg-foreground text-background hover:bg-foreground/90",
+            )}
+          >
+            {generating ? "Generazione…" : "Genera con AI"}
+          </button>
+        )}
+      </div>
+      {expanded && (
+        <div className="space-y-2">
+          {pairs.map(([from, to]) => {
+            const b = bridgeFor(from, to);
+            const fromPoi = poiById.get(from);
+            const toPoi = poiById.get(to);
+            return (
+              <div
+                key={`${from}-${to}`}
+                className="rounded-md border border-border/60 bg-muted/10 p-3 space-y-2"
+              >
+                <p className="text-[11px] text-muted-foreground">
+                  {fromPoi?.name ?? from} →{" "}
+                  <span className="font-medium text-foreground">
+                    {toPoi?.name ?? to}
+                  </span>
+                </p>
+                <Field label="Istruzione movimento">
+                  <Input
+                    value={b?.navigation ?? ""}
+                    onChange={(e) =>
+                      updateBridge(from, to, { navigation: e.target.value })
+                    }
+                    className="h-8 text-sm"
+                    placeholder="Es. Dalla cisterna, segui il sentiero in salita fino alla porta di ferro."
+                  />
+                </Field>
+                <Field label="Racconto raccordo">
+                  <textarea
+                    value={b?.body ?? ""}
+                    onChange={(e) =>
+                      updateBridge(from, to, { body: e.target.value })
+                    }
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-card p-2 text-sm"
+                    placeholder="Testo di transizione fra i due POI"
+                  />
+                </Field>
+                <Field label="Accento opzionale">
+                  <Input
+                    value={b?.lensAccent ?? ""}
+                    onChange={(e) =>
+                      updateBridge(from, to, { lensAccent: e.target.value })
+                    }
+                    className="h-8 text-sm"
+                    placeholder="Sfumatura extra (opzionale)"
+                  />
+                </Field>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

@@ -74,7 +74,31 @@ export async function GET(
       orderBy: [{ poiId: "asc" }, { narratorId: "asc" }],
       select: SELECT,
     });
-    return NextResponse.json({ schede });
+
+    // Auto-core: una scheda è essenziale se:
+    // - è stata flaggata manualmente (s.isCore), OPPURE
+    // - il suo POI è in corePoiIds di almeno un percorso, OPPURE
+    // - il suo POI sta in una zona con function=climax (regola deterministica)
+    const [paths, climaxPois] = await Promise.all([
+      prisma.path.findMany({
+        where: { projectId: id },
+        select: { corePoiIds: true },
+      }),
+      prisma.pOI.findMany({
+        where: { projectId: id, zone: { function: "climax" } },
+        select: { id: true },
+      }),
+    ]);
+    const corePoiSet = new Set<string>();
+    for (const p of paths) for (const pid of p.corePoiIds) corePoiSet.add(pid);
+    for (const p of climaxPois) corePoiSet.add(p.id);
+
+    const schedeEnriched = schede.map((s) => ({
+      ...s,
+      isCore: s.isCore || corePoiSet.has(s.poiId),
+    }));
+
+    return NextResponse.json({ schede: schedeEnriched });
   } catch (err) {
     const authRes = handleAuthError(err);
     if (authRes) return authRes;
@@ -135,6 +159,20 @@ export async function POST(
 
     const scriptText =
       typeof body?.scriptText === "string" ? body.scriptText : "";
+
+    // Auto-core: se il POI è essenziale in almeno un percorso, anche la scheda è core
+    let autoCore = !!body?.isCore;
+    if (!autoCore) {
+      const inCorePath = await prisma.path.findFirst({
+        where: {
+          projectId: id,
+          corePoiIds: { has: poiId },
+        },
+        select: { id: true },
+      });
+      if (inCorePath) autoCore = true;
+    }
+
     const scheda = await prisma.scheda.create({
       data: {
         projectId: id,
@@ -147,7 +185,7 @@ export async function POST(
           typeof body?.durationEstimateSeconds === "number"
             ? body.durationEstimateSeconds
             : wordsPerMinute(scriptText),
-        isCore: !!body?.isCore,
+        isCore: autoCore,
         isDeepDive: !!body?.isDeepDive,
         status: "draft",
         version: 1,

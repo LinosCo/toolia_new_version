@@ -19,6 +19,7 @@ const SELECT = {
   narratorId: true,
   themeFocus: true,
   chaptersJson: true,
+  bridgesJson: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -82,6 +83,7 @@ export async function POST(
         themeFocus:
           typeof body?.themeFocus === "string" ? body.themeFocus : null,
         chaptersJson: Array.isArray(body?.chapters) ? body.chapters : [],
+        bridgesJson: Array.isArray(body?.bridges) ? body.bridges : [],
       },
       select: SELECT,
     });

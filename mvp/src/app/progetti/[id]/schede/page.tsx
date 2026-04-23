@@ -130,6 +130,8 @@ export default function SchedeStepPage({
   const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [selectedPoi, setSelectedPoi] = useState<string | "all">("all");
+  const [bulkRunning, setBulkRunning] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<string>("");
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
@@ -258,6 +260,183 @@ export default function SchedeStepPage({
     }
   };
 
+  const bulkGenerateAll = async () => {
+    if (!hasLlmKey || !activeProvider || !keys) return;
+    if (pois.length === 0 || narrators.length === 0) return;
+    if (
+      !window.confirm(
+        `Generare base + schede per tutti i ${pois.length} POI × ${narrators.length} narratori e pubblicarle? (solo testi, niente audio)`,
+      )
+    )
+      return;
+    setBulkRunning(true);
+    setBulkProgress("Genero basi di significato…");
+    try {
+      // 1. Basi semantiche mancanti per ogni POI
+      const bases: Map<string, Record<string, unknown>> = new Map();
+      await Promise.all(
+        pois.map(async (poi) => {
+          const baseRes = await fetch(
+            `/api/projects/${projectId}/pois/${poi.id}/semantic-base`,
+            { cache: "no-store" },
+          );
+          const baseJson = baseRes.ok ? await baseRes.json() : null;
+          let sb = baseJson?.semanticBase ?? {};
+          if (Object.keys(sb).length === 0) {
+            const relevantFacts = kb.facts
+              .filter((f) => f.approved)
+              .slice(0, 60);
+            const r = await fetch("/api/ai/generate-semantic-base", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                apiKey: keys.llm[activeProvider],
+                provider: activeProvider,
+                projectName: project?.name,
+                poi: {
+                  id: poi.id,
+                  name: poi.name,
+                  description: poi.description,
+                  type: poi.type,
+                  zoneId: poi.zoneId,
+                },
+                brief: brief
+                  ? {
+                      obiettivo: brief.obiettivo,
+                      promessaNarrativa: brief.promessaNarrativa,
+                      tono: brief.tono,
+                      tipoEsperienza: brief.tipoEsperienza,
+                      mustTell: brief.mustTell,
+                      avoid: brief.avoid,
+                      verify: brief.verify,
+                    }
+                  : undefined,
+                drivers: drivers?.drivers.map((d) => ({
+                  id: d.id,
+                  name: d.name,
+                  domain: d.domain,
+                })),
+                kbFacts: relevantFacts.map((f) => ({
+                  content: f.content,
+                  category: f.category,
+                  importance: f.importance,
+                  reliability: f.reliability,
+                  poiRef: f.poiRef ?? null,
+                })),
+                visitorQuestions: brief?.visitorQuestions,
+              }),
+            });
+            const data = await r.json();
+            if (r.ok && data.semanticBase) {
+              sb = data.semanticBase;
+              await fetch(
+                `/api/projects/${projectId}/pois/${poi.id}/semantic-base`,
+                {
+                  method: "PUT",
+                  headers: { "content-type": "application/json" },
+                  body: JSON.stringify(sb),
+                },
+              );
+            }
+          }
+          bases.set(poi.id, sb);
+        }),
+      );
+
+      setBulkProgress("Genero schede per ogni narratore…");
+      // 2. Schede per ogni POI × narratore mancante
+      const existing = new Set(
+        schede.map((s) => `${s.poiId}:${s.narratorId}:${s.language}`),
+      );
+      await Promise.all(
+        pois.flatMap((poi) =>
+          narrators.map(async (n) => {
+            const key = `${poi.id}:${n.id}:it`;
+            if (existing.has(key)) return;
+            const sb = bases.get(poi.id) ?? {};
+            if (Object.keys(sb).length === 0) return;
+            const r = await fetch("/api/ai/generate-scheda", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                apiKey: keys.llm[activeProvider],
+                provider: activeProvider,
+                language: "it",
+                projectName: project?.name,
+                poi: {
+                  id: poi.id,
+                  name: poi.name,
+                  description: poi.description,
+                  minStaySeconds: poi.minStaySeconds,
+                },
+                narrator: {
+                  id: n.id,
+                  name: n.name,
+                  kind: n.kind,
+                  voiceStyle: n.voiceStyle,
+                  characterBio: n.characterBio ?? "",
+                  characterContractJson: n.characterContractJson,
+                },
+                semanticBase: sb,
+                brief: brief
+                  ? {
+                      obiettivo: brief.obiettivo,
+                      promessaNarrativa: brief.promessaNarrativa,
+                      tono: brief.tono,
+                      tipoEsperienza: brief.tipoEsperienza,
+                      mustTell: brief.mustTell,
+                      avoid: brief.avoid,
+                    }
+                  : undefined,
+              }),
+            });
+            const data = await r.json();
+            if (!r.ok) return;
+            await fetch(`/api/projects/${projectId}/schede`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                poiId: poi.id,
+                narratorId: n.id,
+                language: "it",
+                title: data.title,
+                scriptText: data.scriptText,
+                semanticBaseJson: sb,
+              }),
+            });
+          }),
+        ),
+      );
+
+      setBulkProgress("Pubblicazione…");
+      await reloadAll();
+      // Ricarico per prendere gli id freschi
+      const freshRes = await fetch(`/api/projects/${projectId}/schede`, {
+        cache: "no-store",
+      });
+      const fresh = freshRes.ok ? (await freshRes.json()).schede : [];
+      await Promise.all(
+        (fresh as Scheda[])
+          .filter((s) => s.status !== "published")
+          .map((s) =>
+            fetch(`/api/projects/${projectId}/schede/${s.id}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ status: "published" }),
+            }),
+          ),
+      );
+
+      setBulkProgress("Fatto!");
+      await reloadAll();
+    } finally {
+      setTimeout(() => {
+        setBulkRunning(false);
+        setBulkProgress("");
+      }, 1500);
+    }
+  };
+
   const removeScheda = async (id: string) => {
     if (!window.confirm("Eliminare questa scheda?")) return;
     setSchede((prev) => prev.filter((s) => s.id !== id));
@@ -302,6 +481,39 @@ export default function SchedeStepPage({
         <WarnBanner>
           Crea almeno un narratore nello Step Percorsi e Narratori.
         </WarnBanner>
+      )}
+
+      {/* Bulk test action */}
+      {hasLlmKey && pois.length > 0 && narrators.length > 0 && (
+        <div className="mb-6 rounded-xl border border-border bg-muted/20 p-4 flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <p className="text-sm font-medium">Test rapido</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Genera base + schede per ogni POI × narratore e pubblica tutto.
+              Audio escluso.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={bulkGenerateAll}
+            disabled={bulkRunning}
+            className={cn(
+              "inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-sm font-medium transition-colors shrink-0",
+              bulkRunning
+                ? "bg-muted text-muted-foreground cursor-wait"
+                : "bg-brand text-white hover:bg-brand/90",
+            )}
+          >
+            {bulkRunning ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkles className="h-4 w-4" />
+            )}
+            {bulkRunning
+              ? bulkProgress || "In corso…"
+              : "Genera tutto e pubblica"}
+          </button>
+        </div>
       )}
 
       {/* Stats + filtri */}
@@ -835,6 +1047,7 @@ function PoiBlock({
                 <SchedaRow
                   key={n.id}
                   poiId={poi.id}
+                  projectId={projectId}
                   narrator={n}
                   scheda={existing}
                   canGenerate={hasLlmKey && hasBase}
@@ -852,7 +1065,649 @@ function PoiBlock({
           </div>
         )}
       </div>
+
+      {/* Q&A Assistant */}
+      <QAPackSection
+        poi={poi}
+        projectId={projectId}
+        hasLlmKey={hasLlmKey}
+        apiKey={apiKey}
+        provider={provider}
+        semanticBase={semanticBase}
+        kbFacts={kb.facts}
+        visitorQuestions={brief?.visitorQuestions}
+        projectName={project?.name}
+      />
+
+      {/* Family missions (solo se family mode abilitato) */}
+      {brief?.familyMode?.enabled && (
+        <FamilyMissionsSection
+          poi={poi}
+          projectId={projectId}
+          hasLlmKey={hasLlmKey}
+          apiKey={apiKey}
+          provider={provider}
+          semanticBase={semanticBase}
+          familyMode={brief.familyMode}
+          projectName={project?.name}
+        />
+      )}
     </section>
+  );
+}
+
+/* ─────────── Q&A Assistant pack ─────────── */
+
+interface QAUnit {
+  id?: string;
+  triggerQuestions: string[];
+  verifiedAnswer: string;
+  extendedAnswer?: string | null;
+  doNotAnswerBeyond?: string | null;
+  sessionRelevance?: string | null;
+}
+
+function QAPackSection({
+  poi,
+  projectId,
+  hasLlmKey,
+  apiKey,
+  provider,
+  semanticBase,
+  kbFacts,
+  visitorQuestions,
+  projectName,
+}: {
+  poi: { id: string; name: string; description?: string };
+  projectId: string;
+  hasLlmKey: boolean;
+  apiKey: string;
+  provider: "kimi" | "openai" | null;
+  semanticBase: Record<string, unknown>;
+  kbFacts: ProjectKB["facts"];
+  visitorQuestions?: ProjectBrief["visitorQuestions"];
+  projectName?: string | null;
+}) {
+  const [units, setUnits] = useState<QAUnit[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const r = await fetch(
+        `/api/projects/${projectId}/assistant-qa?poiId=${poi.id}`,
+        { cache: "no-store" },
+      );
+      if (r.ok) {
+        const j = await r.json();
+        if (alive) {
+          setUnits(j.units ?? []);
+          setLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, poi.id]);
+
+  const generate = async () => {
+    if (!hasLlmKey || !provider || generating) return;
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/ai/generate-qa-pack", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey,
+          provider,
+          poi: { id: poi.id, name: poi.name, description: poi.description },
+          semanticBase,
+          kbFacts: kbFacts
+            .filter((f) => f.approved)
+            .slice(0, 40)
+            .map((f) => ({
+              content: f.content,
+              category: f.category,
+              importance: f.importance,
+              reliability: f.reliability,
+            })),
+          visitorQuestions,
+          projectName,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) return;
+      const generated = (data.units ?? []) as QAUnit[];
+      // salva
+      const saved: QAUnit[] = [];
+      for (const u of generated) {
+        const res = await fetch(`/api/projects/${projectId}/assistant-qa`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ ...u, poiId: poi.id, scope: "poi" }),
+        });
+        if (res.ok) {
+          const j = await res.json();
+          saved.push(j.unit);
+        }
+      }
+      setUnits((prev) => [...prev, ...saved]);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const updateUnit = async (id: string, patch: Partial<QAUnit>) => {
+    setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, ...patch } : u)));
+    await fetch(`/api/projects/${projectId}/assistant-qa/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+  };
+
+  const removeUnit = async (id: string) => {
+    setUnits((prev) => prev.filter((u) => u.id !== id));
+    await fetch(`/api/projects/${projectId}/assistant-qa/${id}`, {
+      method: "DELETE",
+    });
+  };
+
+  return (
+    <div className="px-5 py-4 border-t border-border/60">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <BookOpen
+            className="h-4 w-4 text-muted-foreground"
+            strokeWidth={1.8}
+          />
+          <p className="text-sm font-medium">Risposte chatbot (Q&amp;A)</p>
+          <span className="text-[11px] text-muted-foreground">
+            {loaded ? `${units.length} unità` : "carico…"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {hasLlmKey && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                void generate();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void generate();
+                }
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium cursor-pointer transition-colors",
+                generating
+                  ? "bg-muted text-muted-foreground cursor-wait"
+                  : "bg-foreground text-background hover:bg-foreground/90",
+              )}
+            >
+              {generating ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              {generating
+                ? "Generazione…"
+                : units.length > 0
+                  ? "Aggiungi altre"
+                  : "Genera Q&A"}
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              expanded ? "rotate-180" : "",
+            )}
+            strokeWidth={1.8}
+          />
+        </div>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {units.length === 0 && (
+            <p className="text-xs text-muted-foreground italic">
+              Nessuna Q&amp;A ancora. L'AI genera 5-8 unità per POI basate sui
+              fatti verificati e le domande probabili del visitatore.
+            </p>
+          )}
+          {units.map((u) => (
+            <div
+              key={u.id}
+              className="rounded-lg border border-border/60 bg-muted/10 p-3 space-y-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <p className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground mb-1">
+                    Domande trigger
+                  </p>
+                  <div className="space-y-1">
+                    {u.triggerQuestions.map((q, i) => (
+                      <Input
+                        key={i}
+                        value={q}
+                        onChange={(e) => {
+                          const next = [...u.triggerQuestions];
+                          next[i] = e.target.value;
+                          if (u.id)
+                            updateUnit(u.id, { triggerQuestions: next });
+                        }}
+                        className="h-8 text-sm"
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => u.id && removeUnit(u.id)}
+                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" strokeWidth={1.8} />
+                </button>
+              </div>
+              <Field label="Risposta verificata">
+                <textarea
+                  value={u.verifiedAnswer}
+                  onChange={(e) =>
+                    u.id && updateUnit(u.id, { verifiedAnswer: e.target.value })
+                  }
+                  rows={2}
+                  className="w-full rounded-md border border-border bg-card p-2 text-sm"
+                />
+              </Field>
+              <Field label="Risposta estesa (opzionale)">
+                <textarea
+                  value={u.extendedAnswer ?? ""}
+                  onChange={(e) =>
+                    u.id && updateUnit(u.id, { extendedAnswer: e.target.value })
+                  }
+                  rows={2}
+                  className="w-full rounded-md border border-border bg-card p-2 text-sm"
+                />
+              </Field>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <Field label="Limiti (non rispondere oltre)">
+                  <Input
+                    value={u.doNotAnswerBeyond ?? ""}
+                    onChange={(e) =>
+                      u.id &&
+                      updateUnit(u.id, { doNotAnswerBeyond: e.target.value })
+                    }
+                    className="h-8"
+                  />
+                </Field>
+                <Field label="Quando proporla">
+                  <Input
+                    value={u.sessionRelevance ?? ""}
+                    onChange={(e) =>
+                      u.id &&
+                      updateUnit(u.id, { sessionRelevance: e.target.value })
+                    }
+                    className="h-8"
+                  />
+                </Field>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────── Family missions ─────────── */
+
+interface FamilyMission {
+  id?: string;
+  missionType: "poi_observation" | "segment" | "sync";
+  kidMissionBrief: string;
+  clue?: string | null;
+  hintLadderJson: string[];
+  reward?: string | null;
+  familyHandoff?: string | null;
+  characterCue?: string | null;
+  visualCue?: string | null;
+  durationSeconds: number;
+}
+
+function FamilyMissionsSection({
+  poi,
+  projectId,
+  hasLlmKey,
+  apiKey,
+  provider,
+  semanticBase,
+  familyMode,
+  projectName,
+}: {
+  poi: { id: string; name: string; description?: string };
+  projectId: string;
+  hasLlmKey: boolean;
+  apiKey: string;
+  provider: "kimi" | "openai" | null;
+  semanticBase: Record<string, unknown>;
+  familyMode: NonNullable<ProjectBrief["familyMode"]>;
+  projectName?: string | null;
+}) {
+  const [missions, setMissions] = useState<FamilyMission[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const r = await fetch(
+        `/api/projects/${projectId}/family-missions?poiId=${poi.id}`,
+        { cache: "no-store" },
+      );
+      if (r.ok) {
+        const j = await r.json();
+        if (alive) {
+          const fromApi = (j.missions ?? []).map(
+            (m: FamilyMission & { hintLadderJson?: string[] }) => ({
+              ...m,
+              hintLadderJson: Array.isArray(m.hintLadderJson)
+                ? m.hintLadderJson
+                : [],
+            }),
+          );
+          setMissions(fromApi);
+          setLoaded(true);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [projectId, poi.id]);
+
+  const generate = async () => {
+    if (!hasLlmKey || !provider || generating) return;
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/ai/generate-family-missions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey,
+          provider,
+          poi: { id: poi.id, name: poi.name, description: poi.description },
+          semanticBase,
+          familyMode: {
+            mascotName: familyMode.mascotName,
+            etaTarget: familyMode.etaTarget,
+            tonoFamily: familyMode.tonoFamily,
+            modalitaGioco: familyMode.modalitaGioco,
+          },
+          projectName,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok) return;
+      const generated = data.missions ?? [];
+      const saved: FamilyMission[] = [];
+      for (const m of generated) {
+        const res = await fetch(`/api/projects/${projectId}/family-missions`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            poiId: poi.id,
+            missionType: m.missionType ?? "poi_observation",
+            kidMissionBrief: m.kidMissionBrief ?? "",
+            clue: m.clue ?? null,
+            hintLadder: Array.isArray(m.hintLadder) ? m.hintLadder : [],
+            reward: m.reward ?? null,
+            familyHandoff: m.familyHandoff ?? null,
+            characterCue: m.characterCue ?? null,
+            visualCue: m.visualCue ?? null,
+            durationSeconds: m.durationSeconds ?? 60,
+          }),
+        });
+        if (res.ok) {
+          const j = await res.json();
+          saved.push(j.mission);
+        }
+      }
+      setMissions((prev) => [...prev, ...saved]);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const updateMission = async (id: string, patch: Partial<FamilyMission>) => {
+    setMissions((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...patch } : m)),
+    );
+    const body: Record<string, unknown> = { ...patch };
+    if (patch.hintLadderJson !== undefined) {
+      body.hintLadder = patch.hintLadderJson;
+      delete body.hintLadderJson;
+    }
+    await fetch(`/api/projects/${projectId}/family-missions/${id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  };
+
+  const removeMission = async (id: string) => {
+    setMissions((prev) => prev.filter((m) => m.id !== id));
+    await fetch(`/api/projects/${projectId}/family-missions/${id}`, {
+      method: "DELETE",
+    });
+  };
+
+  return (
+    <div className="px-5 py-4 border-t border-border/60 bg-amber-50/30">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center justify-between gap-3 text-left"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-base">🎲</span>
+          <p className="text-sm font-medium">Missioni famiglie (kids)</p>
+          <span className="text-[11px] text-muted-foreground">
+            {loaded ? `${missions.length} missioni` : "carico…"}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {hasLlmKey && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => {
+                e.stopPropagation();
+                void generate();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  void generate();
+                }
+              }}
+              className={cn(
+                "inline-flex items-center gap-1.5 h-7 px-3 rounded-full text-[11px] font-medium cursor-pointer transition-colors",
+                generating
+                  ? "bg-muted text-muted-foreground cursor-wait"
+                  : "bg-foreground text-background hover:bg-foreground/90",
+              )}
+            >
+              {generating ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              {generating ? "Generazione…" : "Genera missioni"}
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform",
+              expanded ? "rotate-180" : "",
+            )}
+            strokeWidth={1.8}
+          />
+        </div>
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {missions.length === 0 && (
+            <p className="text-xs text-muted-foreground italic">
+              Nessuna missione ancora. L'AI ne genera 1-2 per POI: osservazione,
+              segment o sync.
+            </p>
+          )}
+          {missions.map((m) => (
+            <div
+              key={m.id}
+              className="rounded-lg border border-amber-300/40 bg-card p-3 space-y-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={m.missionType}
+                    onChange={(e) =>
+                      m.id &&
+                      updateMission(m.id, {
+                        missionType: e.target
+                          .value as FamilyMission["missionType"],
+                      })
+                    }
+                    className="h-7 rounded-md border border-border bg-card px-2 text-[11px]"
+                  >
+                    <option value="poi_observation">Osservazione</option>
+                    <option value="segment">Camminando</option>
+                    <option value="sync">Sync</option>
+                  </select>
+                  <span className="text-[11px] text-muted-foreground">
+                    ~{m.durationSeconds}s
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => m.id && removeMission(m.id)}
+                  className="h-7 w-7 rounded-full text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3 w-3" strokeWidth={1.8} />
+                </button>
+              </div>
+              <Field label="Missione per il bambino">
+                <textarea
+                  value={m.kidMissionBrief}
+                  onChange={(e) =>
+                    m.id &&
+                    updateMission(m.id, { kidMissionBrief: e.target.value })
+                  }
+                  rows={2}
+                  className="w-full rounded-md border border-border bg-card p-2 text-sm"
+                />
+              </Field>
+              <Field label="Indizio">
+                <Input
+                  value={m.clue ?? ""}
+                  onChange={(e) =>
+                    m.id && updateMission(m.id, { clue: e.target.value })
+                  }
+                  className="h-8"
+                />
+              </Field>
+              <ListFieldInline
+                label="Hint progressivi"
+                value={m.hintLadderJson}
+                onChange={(v) =>
+                  m.id && updateMission(m.id, { hintLadderJson: v })
+                }
+              />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                <Field label="Ricompensa">
+                  <Input
+                    value={m.reward ?? ""}
+                    onChange={(e) =>
+                      m.id && updateMission(m.id, { reward: e.target.value })
+                    }
+                    className="h-8"
+                  />
+                </Field>
+                <Field label="Istruzione per il genitore">
+                  <Input
+                    value={m.familyHandoff ?? ""}
+                    onChange={(e) =>
+                      m.id &&
+                      updateMission(m.id, { familyHandoff: e.target.value })
+                    }
+                    className="h-8"
+                  />
+                </Field>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ListFieldInline({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+}) {
+  return (
+    <div>
+      <Label className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground mb-1 block">
+        {label}
+      </Label>
+      <div className="space-y-1">
+        {value.map((it, i) => (
+          <div key={i} className="flex items-center gap-1">
+            <Input
+              value={it}
+              onChange={(e) => {
+                const next = [...value];
+                next[i] = e.target.value;
+                onChange(next);
+              }}
+              className="h-7 text-xs"
+            />
+            <button
+              type="button"
+              onClick={() => onChange(value.filter((_, x) => x !== i))}
+              className="h-6 w-6 rounded-full text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-2.5 w-2.5" strokeWidth={1.8} />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange([...value, ""])}
+          className="text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          + hint
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1062,6 +1917,7 @@ function ListField({
 /* ─────────── Scheda row ─────────── */
 
 function SchedaRow({
+  projectId,
   narrator,
   scheda,
   canGenerate,
@@ -1071,6 +1927,7 @@ function SchedaRow({
   onRemove,
 }: {
   poiId: string;
+  projectId: string;
   narrator: Narrator;
   scheda: Scheda | undefined;
   canGenerate: boolean;
@@ -1146,6 +2003,12 @@ function SchedaRow({
               <span className="inline-flex items-center gap-0.5 text-[10px] text-brand">
                 <Star className="h-2.5 w-2.5 fill-brand" strokeWidth={1.8} />
                 core
+              </span>
+            )}
+            {local?.isDeepDive && (
+              <span className="inline-flex items-center gap-0.5 text-[10px] text-indigo-700">
+                <BookOpen className="h-2.5 w-2.5" strokeWidth={1.8} />
+                approfondimento
               </span>
             )}
           </div>
@@ -1267,6 +2130,24 @@ function SchedaRow({
               />
               Essenziale
             </button>
+            <button
+              type="button"
+              onClick={() =>
+                persist({
+                  isDeepDive: !local.isDeepDive,
+                })
+              }
+              title="Scheda di approfondimento opzionale, non inclusa di default"
+              className={cn(
+                "h-7 px-3 rounded-full text-[11px] font-medium border transition-colors inline-flex items-center gap-1",
+                local.isDeepDive
+                  ? "bg-indigo-500/10 border-indigo-500/40 text-indigo-700"
+                  : "border-border text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <BookOpen className="h-3 w-3" strokeWidth={1.8} />
+              Approfondimento
+            </button>
           </div>
 
           {/* Workflow stati */}
@@ -1366,7 +2247,15 @@ function SchedaRow({
           </div>
 
           {/* Audio stub */}
-          <AudioStub scheda={local} narrator={narrator} />
+          <AudioStub
+            scheda={local}
+            narrator={narrator}
+            projectId={projectId}
+            onAudioChange={(audio) => {
+              setLocal((l) => (l ? { ...l, audio } : l));
+              if (local && audio) onUpdate?.({ audio } as Partial<Scheda>);
+            }}
+          />
         </div>
       )}
     </div>
@@ -1406,11 +2295,45 @@ function StatusBtn({
 function AudioStub({
   scheda,
   narrator,
+  projectId,
+  onAudioChange,
 }: {
   scheda: Scheda;
   narrator: Narrator;
+  projectId: string;
+  onAudioChange: (audio: Scheda["audio"]) => void;
 }) {
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const canGenerate = scheda.status === "published" && !!narrator.voiceId;
+
+  const generateAudio = async () => {
+    if (!canGenerate || generating) return;
+    const ok = window.confirm(
+      "Genero l'audio con ElevenLabs? Costo indicativo ~$0.10-0.30 per scheda.",
+    );
+    if (!ok) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/schede/${scheda.id}/audio`,
+        { method: "POST" },
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.message ?? "Errore generazione audio");
+        return;
+      }
+      onAudioChange(data.audio);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Errore di rete");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
   return (
     <div className="rounded-lg border border-dashed border-border/70 bg-muted/20 p-4 space-y-2">
       <div className="flex items-center gap-2 text-sm">
@@ -1420,26 +2343,8 @@ function AudioStub({
         />
         <p className="font-medium">Audio</p>
       </div>
-      {!scheda.audio ? (
-        <>
-          <p className="text-xs text-muted-foreground">
-            {canGenerate
-              ? "Pronta per generare audio con ElevenLabs."
-              : scheda.status !== "published"
-                ? "L'audio si genera dopo aver pubblicato la scheda."
-                : "Assegna una voce al narratore in Step 05."}
-          </p>
-          <button
-            type="button"
-            disabled
-            title="Generazione audio disattivata finché non approvi tutto il progetto"
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium bg-muted text-muted-foreground cursor-not-allowed opacity-60"
-          >
-            <Sparkles className="h-3 w-3" />
-            Genera audio (attiverà quando approvi)
-          </button>
-        </>
-      ) : (
+
+      {scheda.audio && (
         <div className="space-y-2">
           {scheda.audio.isStale && (
             <p className="text-xs text-amber-700 font-medium">
@@ -1453,6 +2358,43 @@ function AudioStub({
           </p>
         </div>
       )}
+
+      {!scheda.audio && !canGenerate && (
+        <p className="text-xs text-muted-foreground">
+          {scheda.status !== "published"
+            ? "L'audio si genera dopo aver pubblicato la scheda."
+            : "Assegna una voce al narratore in Step 05."}
+        </p>
+      )}
+
+      {canGenerate && (
+        <button
+          type="button"
+          onClick={generateAudio}
+          disabled={generating}
+          className={cn(
+            "inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium transition-colors",
+            generating
+              ? "bg-muted text-muted-foreground cursor-wait"
+              : scheda.audio
+                ? "bg-foreground text-background hover:bg-foreground/90"
+                : "bg-brand text-white hover:bg-brand/90",
+          )}
+        >
+          {generating ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Sparkles className="h-3 w-3" />
+          )}
+          {generating
+            ? "Generazione audio…"
+            : scheda.audio
+              ? "Rigenera audio"
+              : "Genera audio"}
+        </button>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }

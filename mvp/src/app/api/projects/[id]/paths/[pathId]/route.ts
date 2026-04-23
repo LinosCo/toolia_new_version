@@ -12,6 +12,7 @@ const SELECT = {
   narratorId: true,
   themeFocus: true,
   chaptersJson: true,
+  bridgesJson: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -59,6 +60,7 @@ export async function PATCH(
     if (typeof body?.themeFocus === "string" || body?.themeFocus === null)
       data.themeFocus = body.themeFocus;
     if (Array.isArray(body?.chapters)) data.chaptersJson = body.chapters;
+    if (Array.isArray(body?.bridges)) data.bridgesJson = body.bridges;
 
     const path = await prisma.path.update({
       where: { id: pathId },

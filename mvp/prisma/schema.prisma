@@ -125,6 +125,8 @@ model Project {
   schede       Scheda[]
   themes       Theme[]
   jobs         Job[]
+  assistantQAs AssistantQA[]
+  familyMissions FamilyMission[]
 
   @@index([tenantId])
 }
@@ -313,6 +315,8 @@ model POI {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   schede          Scheda[]
+  assistantQAs    AssistantQA[]
+  familyMissions  FamilyMission[]
 
   @@index([projectId])
   @@index([zoneId])
@@ -485,10 +489,66 @@ model Path {
   narrator               NarratorProfile? @relation(fields: [narratorId], references: [id], onDelete: SetNull)
   themeFocus             String?
   chaptersJson           Json     @default("[]")
+  bridgesJson            Json     @default("[]") // testi raccordo fra POI consecutivi
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 
   @@index([projectId])
+}
+
+// ============================================================
+// Assistant verticale (Q&A pack pre-generato per chatbot visita)
+// ============================================================
+
+model AssistantQA {
+  id                String   @id @default(cuid())
+  projectId         String
+  project           Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  poiId             String?
+  poi               POI?     @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  scope             String   @default("poi") // "poi" | "project"
+  triggerQuestions  String[] @default([])
+  verifiedAnswer    String   @db.Text
+  extendedAnswer    String?  @db.Text
+  doNotAnswerBeyond String?  @db.Text
+  sessionRelevance  String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([projectId])
+  @@index([poiId])
+}
+
+// ============================================================
+// Family mode — micro-missioni kids per POI selezionati
+// ============================================================
+
+model FamilyMission {
+  id              String             @id @default(cuid())
+  projectId       String
+  project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  poiId           String
+  poi             POI                @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  missionType     FamilyMissionType  @default(poi_observation)
+  kidMissionBrief String             @db.Text
+  clue            String?            @db.Text
+  hintLadderJson  Json               @default("[]") // array di hint progressivi
+  reward          String?            @db.Text
+  familyHandoff   String?            @db.Text
+  characterCue    String?
+  visualCue       String?            @db.Text
+  durationSeconds Int                @default(60)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([projectId])
+  @@index([poiId])
+}
+
+enum FamilyMissionType {
+  poi_observation
+  segment
+  sync
 }
 
 model Scheda {
