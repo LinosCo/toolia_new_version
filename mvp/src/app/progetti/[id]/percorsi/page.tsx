@@ -900,6 +900,20 @@ export default function PercorsiStepPage({
           </span>
           Driver e Personas
         </a>
+        <a
+          href={`/progetti/${projectId}/schede`}
+          className={cn(
+            "inline-flex items-center gap-2 h-10 px-4 rounded-full text-sm font-medium transition-colors",
+            narrators.length > 0 && paths.length > 0
+              ? "bg-foreground text-background hover:bg-foreground/90"
+              : "bg-muted text-muted-foreground",
+          )}
+        >
+          {narrators.length > 0 && paths.length > 0
+            ? "Vai a Schede e Audio"
+            : "Completa narratori e percorsi"}
+          <ArrowRight className="h-4 w-4" />
+        </a>
       </div>
     </div>
   );

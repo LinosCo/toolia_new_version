@@ -43,6 +43,12 @@ export const PROJECT_STEPS: StepDef[] = [
     kicker: "05",
     description: "Voci narranti, itinerari tematici, capitoli",
   },
+  {
+    slug: "schede",
+    label: "Schede e Audio",
+    kicker: "06",
+    description: "Testi dell'audioguida, approvazione, audio TTS",
+  },
 ];
 
 export function ProjectStepper({

@@ -39,6 +39,10 @@ export default function ProjectLayout({
   const [drivers, setDrivers] = useState<ProjectDriversPersonas | undefined>(
     undefined,
   );
+  const [narratorsCount, setNarratorsCount] = useState(0);
+  const [pathsCount, setPathsCount] = useState(0);
+  const [schedeCount, setSchedeCount] = useState(0);
+  const [publishedSchedeCount, setPublishedSchedeCount] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -87,6 +91,32 @@ export default function ProjectLayout({
       setBrief(b);
       setMap(m);
       setDrivers(d);
+
+      // Narrators + Paths + Schede counts
+      try {
+        const [nr, pa, sc] = await Promise.all([
+          fetch(`/api/projects/${id}/narrators`, { cache: "no-store" }).then(
+            (r) => (r.ok ? r.json() : null),
+          ),
+          fetch(`/api/projects/${id}/paths`, { cache: "no-store" }).then((r) =>
+            r.ok ? r.json() : null,
+          ),
+          fetch(`/api/projects/${id}/schede`, { cache: "no-store" }).then(
+            (r) => (r.ok ? r.json() : null),
+          ),
+        ]);
+        if (!alive) return;
+        setNarratorsCount(nr?.narrators?.length ?? 0);
+        setPathsCount(pa?.paths?.length ?? 0);
+        const schedeList = sc?.schede ?? [];
+        setSchedeCount(schedeList.length);
+        setPublishedSchedeCount(
+          schedeList.filter((x: { status: string }) => x.status === "published")
+            .length,
+        );
+      } catch {
+        // silent
+      }
     };
     refresh();
 
@@ -122,6 +152,8 @@ export default function ProjectLayout({
     driver:
       (drivers?.drivers.length ?? 0) >= 1 &&
       (drivers?.personas.length ?? 0) >= 1,
+    percorsi: narratorsCount >= 1 && pathsCount >= 1,
+    schede: schedeCount >= 1 && publishedSchedeCount >= 1,
   };
 
   if (project === undefined) {

@@ -309,6 +309,7 @@ model POI {
   imageUrl        String?
   orderIndex      Int      @default(0)
   evidence        String[] @default([]) // sourceIds che attestano il POI
+  semanticBaseJson Json    @default("{}") // base significato condivisa (identity, messages, facts, angles, warnings)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   schede          Scheda[]
