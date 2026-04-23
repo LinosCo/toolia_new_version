@@ -219,29 +219,42 @@ export default function NuovoProgettoPage() {
     if (step > 0) setStep((s) => (s - 1) as Step);
   };
 
-  const createProject = () => {
-    const payload = {
-      id: `p-${Date.now()}`,
-      name: data.name.trim(),
-      type: data.type,
-      coverImage: data.coverImage ?? undefined,
-      address: data.address.trim() || undefined,
-      mapsLink: data.mapsLink.trim() || undefined,
-      city: data.city.trim() || undefined,
-      createdAt: new Date().toISOString(),
-    };
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  const createProject = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
     try {
-      const existing = JSON.parse(
-        localStorage.getItem("toolia-projects") ?? "[]",
-      );
-      localStorage.setItem(
-        "toolia-projects",
-        JSON.stringify([payload, ...existing]),
-      );
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: data.name.trim(),
+          type: data.type,
+          coverImage: data.coverImage,
+          address: data.address.trim() || null,
+          mapsLink: data.mapsLink.trim() || null,
+          city: data.city.trim() || null,
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setSubmitError(
+          json?.error === "unauthorized"
+            ? "Sessione scaduta. Ricarica la pagina."
+            : "Creazione non riuscita. Riprova.",
+        );
+        setSubmitting(false);
+        return;
+      }
+      const { project } = (await res.json()) as { project: { id: string } };
+      router.push(`/progetti/${project.id}`);
     } catch {
-      // silent
+      setSubmitError("Errore di rete. Riprova.");
+      setSubmitting(false);
     }
-    router.push("/");
   };
 
   return (
@@ -535,14 +548,25 @@ export default function NuovoProgettoPage() {
               <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
             </button>
           ) : (
-            <button
-              type="button"
-              onClick={createProject}
-              className="inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium bg-brand text-white hover:bg-brand/90 transition-colors shadow-[0_1px_3px_rgba(0,0,0,0.1)]"
-            >
-              Crea progetto
-              <ArrowRight className="h-4 w-4" strokeWidth={2} />
-            </button>
+            <div className="flex items-center gap-4">
+              {submitError && (
+                <p className="text-xs text-destructive">{submitError}</p>
+              )}
+              <button
+                type="button"
+                onClick={createProject}
+                disabled={submitting}
+                className={cn(
+                  "inline-flex items-center gap-2 h-11 px-6 rounded-full text-sm font-medium transition-colors shadow-[0_1px_3px_rgba(0,0,0,0.1)]",
+                  submitting
+                    ? "bg-muted text-muted-foreground cursor-wait"
+                    : "bg-brand text-white hover:bg-brand/90",
+                )}
+              >
+                {submitting ? "Creazione…" : "Crea progetto"}
+                <ArrowRight className="h-4 w-4" strokeWidth={2} />
+              </button>
+            </div>
           )}
         </div>
       </footer>

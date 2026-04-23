@@ -24,79 +24,50 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  mockProjects,
   MockProject,
   ProjectType,
   projectTypeLabel,
 } from "@/lib/mock-projects";
 
-interface StoredProject {
+interface ApiProject {
   id: string;
   name: string;
-  type: ProjectType | null;
-  coverImage?: string;
-  address?: string;
-  mapsLink?: string;
-  city?: string;
+  type: ProjectType;
+  status: "draft" | "in_review" | "client_review" | "published" | "archived";
+  coverImage: string | null;
+  address: string | null;
+  mapsLink: string | null;
+  city: string | null;
+  languages: string[];
   createdAt: string;
+  updatedAt: string;
 }
 
-function deriveCityFromAddress(addr?: string): string {
-  if (!addr) return "";
-  const parts = addr
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  if (parts.length === 0) return "";
-  // Drop last part if it's "Italia" or a country-like word
-  const countries =
-    /^(italia|italy|france|francia|spagna|spain|deutschland|germania|germany|schweiz|svizzera|switzerland)$/i;
-  const cleaned = parts.filter((p) => !countries.test(p));
-  const candidate = cleaned[cleaned.length - 1] ?? "";
-  // Strip leading zip (5 digits) and trailing 2-letter province code
-  return candidate
-    .replace(/^\d{4,5}\s+/, "")
-    .replace(/\s+[A-Z]{2}$/, "")
-    .trim();
+function mapStatus(s: ApiProject["status"]): MockProject["status"] {
+  if (s === "published") return "published";
+  if (s === "draft") return "draft";
+  // in_review | client_review → in_progress in UI (archived filtrato lato API)
+  return "in_progress";
 }
 
-function hydrateStoredProjects(raw: StoredProject[]): MockProject[] {
-  return raw.map((p) => {
-    // migrazione: se address contiene un URL, spostalo su mapsLink
-    const addrIsUrl = !!p.address?.match(/^https?:\/\//);
-    const address = addrIsUrl ? undefined : p.address;
-    const mapsLink = addrIsUrl ? p.address : p.mapsLink;
-    const location = p.city || deriveCityFromAddress(address);
-    return {
-      id: p.id,
-      name: p.name,
-      client: "—",
-      location,
-      type: (p.type ?? "altro") as ProjectType,
-      status: "draft" as const,
-      completedSteps: 0,
-      languages: ["it"],
-      updatedAt: p.createdAt,
-      coverGradient: ["#C69B6D", "#594333"] as [string, string],
-      coverImage: p.coverImage,
-      address,
-      mapsLink,
-    };
-  });
+function apiToUi(p: ApiProject): MockProject {
+  return {
+    id: p.id,
+    name: p.name,
+    client: "—",
+    location: p.city ?? "",
+    type: p.type,
+    status: mapStatus(p.status),
+    completedSteps: 0,
+    languages: p.languages.length ? p.languages : ["it"],
+    updatedAt: p.updatedAt,
+    coverGradient: ["#C69B6D", "#594333"] as [string, string],
+    coverImage: p.coverImage ?? undefined,
+    address: p.address ?? undefined,
+    mapsLink: p.mapsLink ?? undefined,
+  };
 }
 
-function deleteStoredProject(id: string) {
-  try {
-    const raw = JSON.parse(localStorage.getItem("toolia-projects") ?? "[]");
-    const next = raw.filter((p: StoredProject) => p.id !== id);
-    localStorage.setItem("toolia-projects", JSON.stringify(next));
-    localStorage.removeItem(`toolia-project-${id}-progress`);
-  } catch {
-    // ignore
-  }
-  // cleanup fonti in IndexedDB (fire-and-forget)
-  import("@/lib/project-store").then((m) => m.deleteSources(id));
-}
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "draft" | "in_progress" | "published";
@@ -136,16 +107,23 @@ export default function DashboardPage() {
   const [view, setView] = useState<ViewMode>("grid");
   const [sort, setSort] = useState<SortMode>("recent");
   const [typeFilters, setTypeFilters] = useState<Set<ProjectType>>(new Set());
-  const [storedProjects, setStoredProjects] = useState<MockProject[]>([]);
+  const [projects, setProjects] = useState<MockProject[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("toolia-projects");
-      if (raw) {
-        const parsed: StoredProject[] = JSON.parse(raw);
-        const hydrated = hydrateStoredProjects(parsed);
-        setStoredProjects(hydrated);
-        // Calcola completedSteps in async per ogni progetto
+    let alive = true;
+    async function load() {
+      try {
+        const res = await fetch("/api/projects", { cache: "no-store" });
+        if (!res.ok) {
+          setProjects([]);
+          return;
+        }
+        const json: { projects: ApiProject[] } = await res.json();
+        const hydrated = json.projects.map(apiToUi);
+        if (!alive) return;
+        setProjects(hydrated);
+        // Calcola completedSteps in async per ogni progetto (IDB — Fase 3/4 migrerà a DB)
         import("@/lib/project-store").then(({ computeCompletedSteps }) => {
           Promise.all(
             hydrated.map(async (p) => ({
@@ -153,8 +131,9 @@ export default function DashboardPage() {
               done: await computeCompletedSteps(p.id),
             })),
           ).then((results) => {
+            if (!alive) return;
             const doneById = new Map(results.map((r) => [r.id, r.done]));
-            setStoredProjects((prev) =>
+            setProjects((prev) =>
               prev.map((p) => ({
                 ...p,
                 completedSteps: doneById.get(p.id) ?? p.completedSteps,
@@ -162,16 +141,17 @@ export default function DashboardPage() {
             );
           });
         });
+      } catch {
+        setProjects([]);
+      } finally {
+        if (alive) setLoading(false);
       }
-    } catch {
-      // ignore
     }
+    load();
+    return () => {
+      alive = false;
+    };
   }, []);
-
-  const allProjects = useMemo(
-    () => [...storedProjects, ...mockProjects],
-    [storedProjects],
-  );
 
   const toggleType = (t: ProjectType) => {
     setTypeFilters((prev) => {
@@ -182,16 +162,25 @@ export default function DashboardPage() {
     });
   };
 
-  const handleDelete = (id: string) => {
-    deleteStoredProject(id);
-    setStoredProjects((prev) => prev.filter((p) => p.id !== id));
+  const handleDelete = async (id: string) => {
+    const prev = projects;
+    setProjects((p) => p.filter((x) => x.id !== id));
+    try {
+      const res = await fetch(`/api/projects/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        setProjects(prev);
+        return;
+      }
+      // cleanup locale fire-and-forget
+      import("@/lib/project-store").then((m) => m.deleteSources(id));
+    } catch {
+      setProjects(prev);
+    }
   };
-
-  const isDeletable = (id: string) => storedProjects.some((p) => p.id === id);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const list = allProjects.filter((p) => {
+    const list = projects.filter((p) => {
       const matchF = matchesFilter(p, filter);
       const matchT = typeFilters.size === 0 || typeFilters.has(p.type);
       const matchQ =
@@ -208,16 +197,16 @@ export default function DashboardPage() {
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
     return sorted;
-  }, [query, filter, typeFilters, sort, allProjects]);
+  }, [query, filter, typeFilters, sort, projects]);
 
   const activeAdvCount = typeFilters.size + (sort !== "recent" ? 1 : 0);
 
   const stats = useMemo(() => {
-    const total = allProjects.length;
-    const inProg = allProjects.filter((p) => p.status === "in_progress").length;
-    const pub = allProjects.filter((p) => p.status === "published").length;
+    const total = projects.length;
+    const inProg = projects.filter((p) => p.status === "in_progress").length;
+    const pub = projects.filter((p) => p.status === "published").length;
     return { total, inProg, pub };
-  }, [allProjects]);
+  }, [projects]);
 
   return (
     <div className="flex min-h-screen w-full bg-paper">
@@ -399,7 +388,9 @@ export default function DashboardPage() {
           </div>
 
           {/* Results */}
-          {visible.length > 0 ? (
+          {loading ? (
+            <LoadingState />
+          ) : visible.length > 0 ? (
             view === "grid" ? (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                 {visible.map((p, i) => (
@@ -407,7 +398,7 @@ export default function DashboardPage() {
                     key={p.id}
                     project={p}
                     index={i}
-                    onDelete={isDeletable(p.id) ? handleDelete : undefined}
+                    onDelete={handleDelete}
                   />
                 ))}
               </div>
@@ -418,7 +409,7 @@ export default function DashboardPage() {
                     key={p.id}
                     project={p}
                     index={i}
-                    onDelete={isDeletable(p.id) ? handleDelete : undefined}
+                    onDelete={handleDelete}
                   />
                 ))}
               </div>
@@ -465,6 +456,19 @@ function Stat({
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+      {[0, 1, 2].map((i) => (
+        <div
+          key={i}
+          className="aspect-[4/3] rounded-2xl bg-muted/40 animate-pulse"
+        />
+      ))}
     </div>
   );
 }

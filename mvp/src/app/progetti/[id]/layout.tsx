@@ -6,7 +6,6 @@ import { ArrowLeft } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ProjectStepper } from "@/components/project-stepper";
 import {
-  loadProject,
   loadSources,
   loadBrief,
   loadMap,
@@ -17,6 +16,7 @@ import {
   ProjectBrief,
   ProjectMap,
   ProjectDriversPersonas,
+  cacheProjectLocally,
 } from "@/lib/project-store";
 
 export default function ProjectLayout({
@@ -43,7 +43,38 @@ export default function ProjectLayout({
   useEffect(() => {
     let alive = true;
     const refresh = async () => {
-      const p = loadProject(id) ?? null;
+      let p: StoredProject | null = null;
+      try {
+        const res = await fetch(`/api/projects/${id}`, { cache: "no-store" });
+        if (res.ok) {
+          const json = (await res.json()) as {
+            project: {
+              id: string;
+              name: string;
+              type: string | null;
+              coverImage: string | null;
+              address: string | null;
+              mapsLink: string | null;
+              city: string | null;
+              createdAt: string;
+            };
+          };
+          const api = json.project;
+          p = {
+            id: api.id,
+            name: api.name,
+            type: (api.type ?? null) as StoredProject["type"],
+            coverImage: api.coverImage ?? undefined,
+            address: api.address ?? undefined,
+            mapsLink: api.mapsLink ?? undefined,
+            city: api.city ?? undefined,
+            createdAt: api.createdAt,
+          };
+          cacheProjectLocally(p);
+        }
+      } catch {
+        // fallthrough — p rimane null
+      }
       const [s, b, m, d] = await Promise.all([
         loadSources(id),
         loadBrief(id),

@@ -421,6 +421,25 @@ export function saveProgress(
   }
 }
 
+/**
+ * Salva (merge) il progetto nella lista localStorage. Serve come cache
+ * per le sub-pagine che leggono ancora da localStorage in Fase 2 della
+ * migrazione; la fonte di verità resta Postgres via /api/projects.
+ */
+export function cacheProjectLocally(project: StoredProject): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(PROJECTS_KEY);
+    const list: StoredProject[] = raw ? JSON.parse(raw) : [];
+    const idx = list.findIndex((p) => p.id === project.id);
+    if (idx >= 0) list[idx] = { ...list[idx], ...project };
+    else list.unshift(project);
+    localStorage.setItem(PROJECTS_KEY, JSON.stringify(list));
+  } catch {
+    // silent
+  }
+}
+
 export function loadProjects(): StoredProject[] {
   if (typeof window === "undefined") return [];
   try {
@@ -666,22 +685,25 @@ function loadLegacySources(projectId: string): ProjectSources | undefined {
 export async function loadSources(projectId: string): Promise<ProjectSources> {
   if (typeof window === "undefined") return { images: [], documents: [] };
   try {
+    const res = await fetch(`/api/projects/${projectId}/sources`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.sources) return normalizeSources(json.sources);
+    }
+  } catch {
+    // fallthrough al legacy IDB
+  }
+  try {
     const parsed = await idbGet<ProjectSources>(SOURCES_STORE, projectId);
     if (parsed) return normalizeSources(parsed);
     const legacy = loadLegacySources(projectId);
-    if (legacy) {
-      try {
-        await idbSet(SOURCES_STORE, projectId, legacy);
-        localStorage.removeItem(legacySourcesKey(projectId));
-      } catch {
-        // lasciamo il legacy finché la migrazione riesce
-      }
-      return legacy;
-    }
-    return { images: [], documents: [] };
+    if (legacy) return legacy;
   } catch {
-    return { images: [], documents: [] };
+    // silent
   }
+  return { images: [], documents: [] };
 }
 
 export async function saveSources(
@@ -689,15 +711,24 @@ export async function saveSources(
   sources: ProjectSources,
 ): Promise<{ ok: true } | { ok: false; reason: "quota" | "unknown" }> {
   try {
-    await idbSet(SOURCES_STORE, projectId, sources);
+    const res = await fetch(`/api/projects/${projectId}/sources`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(sources),
+    });
+    if (!res.ok) {
+      const quota = res.status === 413;
+      return { ok: false, reason: quota ? "quota" : "unknown" };
+    }
+    // cache locale per fallback offline
+    try {
+      await idbSet(SOURCES_STORE, projectId, sources);
+    } catch {
+      // silent
+    }
     return { ok: true };
-  } catch (err) {
-    const quota =
-      err instanceof DOMException &&
-      (err.name === "QuotaExceededError" ||
-        err.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
-        err.code === 22);
-    return { ok: false, reason: quota ? "quota" : "unknown" };
+  } catch {
+    return { ok: false, reason: "unknown" };
   }
 }
 
@@ -732,16 +763,35 @@ export async function deleteSources(projectId: string): Promise<void> {
 export async function loadKB(projectId: string): Promise<ProjectKB> {
   if (typeof window === "undefined") return { facts: [] };
   try {
-    const raw = await idbGet<ProjectKB>(KB_STORE, projectId);
-    if (!raw) return { facts: [] };
-    return {
-      facts: Array.isArray(raw.facts) ? raw.facts : [],
-      lastExtractedAt: raw.lastExtractedAt,
-      extractedSignature: raw.extractedSignature,
-    };
+    const res = await fetch(`/api/projects/${projectId}/kb`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const kb = json?.kb;
+      if (kb) {
+        return {
+          facts: Array.isArray(kb.facts) ? kb.facts : [],
+          lastExtractedAt: kb.lastExtractedAt,
+          extractedSignature: kb.extractedSignature,
+        };
+      }
+    }
   } catch {
-    return { facts: [] };
+    // fallthrough
   }
+  try {
+    const raw = await idbGet<ProjectKB>(KB_STORE, projectId);
+    if (raw)
+      return {
+        facts: Array.isArray(raw.facts) ? raw.facts : [],
+        lastExtractedAt: raw.lastExtractedAt,
+        extractedSignature: raw.extractedSignature,
+      };
+  } catch {
+    // silent
+  }
+  return { facts: [] };
 }
 
 export async function saveKB(
@@ -749,7 +799,17 @@ export async function saveKB(
   kb: ProjectKB,
 ): Promise<{ ok: true } | { ok: false; reason: "unknown" }> {
   try {
-    await idbSet(KB_STORE, projectId, kb);
+    const res = await fetch(`/api/projects/${projectId}/kb`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(kb),
+    });
+    if (!res.ok) return { ok: false, reason: "unknown" };
+    try {
+      await idbSet(KB_STORE, projectId, kb);
+    } catch {
+      // silent
+    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "unknown" };
@@ -827,23 +887,42 @@ export async function loadBrief(
 ): Promise<ProjectBrief | undefined> {
   if (typeof window === "undefined") return undefined;
   try {
-    const raw = await idbGet<Partial<ProjectBrief>>(BRIEF_STORE, projectId);
-    if (!raw) return undefined;
-    return normalizeBrief(raw);
+    const res = await fetch(`/api/projects/${projectId}/brief`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.brief) return normalizeBrief(json.brief);
+    }
   } catch {
-    return undefined;
+    // fallthrough
   }
+  try {
+    const raw = await idbGet<Partial<ProjectBrief>>(BRIEF_STORE, projectId);
+    if (raw) return normalizeBrief(raw);
+  } catch {
+    // silent
+  }
+  return undefined;
 }
 
 export async function saveBrief(
   projectId: string,
   brief: ProjectBrief,
 ): Promise<{ ok: true } | { ok: false; reason: "unknown" }> {
+  const next = { ...brief, updatedAt: new Date().toISOString() };
   try {
-    await idbSet(BRIEF_STORE, projectId, {
-      ...brief,
-      updatedAt: new Date().toISOString(),
+    const res = await fetch(`/api/projects/${projectId}/brief`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
     });
+    if (!res.ok) return { ok: false, reason: "unknown" };
+    try {
+      await idbSet(BRIEF_STORE, projectId, next);
+    } catch {
+      // silent
+    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "unknown" };
@@ -864,41 +943,77 @@ function normalizeZoneFunction(raw: unknown): ZoneFunction {
   return map[raw.toLowerCase()] ?? "sviluppo";
 }
 
+function hydrateMap(raw: Partial<ProjectMap>): ProjectMap {
+  return {
+    spatialMode: raw.spatialMode ?? "hybrid",
+    centerLat: raw.centerLat,
+    centerLng: raw.centerLng,
+    pois: Array.isArray(raw.pois) ? raw.pois : [],
+    zones: Array.isArray(raw.zones)
+      ? raw.zones.map((z) => ({
+          ...z,
+          function: normalizeZoneFunction(z.function),
+        }))
+      : [],
+    anchors: Array.isArray(raw.anchors) ? raw.anchors : [],
+    updatedAt: raw.updatedAt,
+  };
+}
+
 export async function loadMap(
   projectId: string,
 ): Promise<ProjectMap | undefined> {
   if (typeof window === "undefined") return undefined;
   try {
-    const raw = await idbGet<ProjectMap>(MAP_STORE, projectId);
-    if (!raw) return undefined;
-    return {
-      spatialMode: raw.spatialMode ?? "hybrid",
-      centerLat: raw.centerLat,
-      centerLng: raw.centerLng,
-      pois: Array.isArray(raw.pois) ? raw.pois : [],
-      zones: Array.isArray(raw.zones)
-        ? raw.zones.map((z) => ({
-            ...z,
-            function: normalizeZoneFunction(z.function),
-          }))
-        : [],
-      anchors: Array.isArray(raw.anchors) ? raw.anchors : [],
-      updatedAt: raw.updatedAt,
-    };
+    const res = await fetch(`/api/projects/${projectId}/map`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.map) {
+        const hydrated = hydrateMap(json.map);
+        // Stato "mai salvato" se non c'è nulla
+        if (
+          hydrated.zones.length === 0 &&
+          hydrated.pois.length === 0 &&
+          hydrated.anchors.length === 0 &&
+          hydrated.centerLat === undefined &&
+          hydrated.centerLng === undefined
+        ) {
+          return undefined;
+        }
+        return hydrated;
+      }
+    }
   } catch {
-    return undefined;
+    // fallthrough
   }
+  try {
+    const raw = await idbGet<ProjectMap>(MAP_STORE, projectId);
+    if (raw) return hydrateMap(raw);
+  } catch {
+    // silent
+  }
+  return undefined;
 }
 
 export async function saveMap(
   projectId: string,
   map: ProjectMap,
 ): Promise<{ ok: true } | { ok: false; reason: "unknown" }> {
+  const next = { ...map, updatedAt: new Date().toISOString() };
   try {
-    await idbSet(MAP_STORE, projectId, {
-      ...map,
-      updatedAt: new Date().toISOString(),
+    const res = await fetch(`/api/projects/${projectId}/map`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
     });
+    if (!res.ok) return { ok: false, reason: "unknown" };
+    try {
+      await idbSet(MAP_STORE, projectId, next);
+    } catch {
+      // silent
+    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "unknown" };
@@ -1209,26 +1324,45 @@ export async function loadDriversPersonas(
 ): Promise<ProjectDriversPersonas | undefined> {
   if (typeof window === "undefined") return undefined;
   try {
+    const res = await fetch(`/api/projects/${projectId}/drivers-personas`, {
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const json = await res.json();
+      if (json?.data) return normalizeDriversPersonas(json.data);
+    }
+  } catch {
+    // fallthrough
+  }
+  try {
     const raw = await idbGet<Partial<ProjectDriversPersonas>>(
       DRIVERS_STORE,
       projectId,
     );
-    if (!raw) return undefined;
-    return normalizeDriversPersonas(raw);
+    if (raw) return normalizeDriversPersonas(raw);
   } catch {
-    return undefined;
+    // silent
   }
+  return undefined;
 }
 
 export async function saveDriversPersonas(
   projectId: string,
   data: ProjectDriversPersonas,
 ): Promise<{ ok: true } | { ok: false; reason: "unknown" }> {
+  const next = { ...data, updatedAt: new Date().toISOString() };
   try {
-    await idbSet(DRIVERS_STORE, projectId, {
-      ...data,
-      updatedAt: new Date().toISOString(),
+    const res = await fetch(`/api/projects/${projectId}/drivers-personas`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(next),
     });
+    if (!res.ok) return { ok: false, reason: "unknown" };
+    try {
+      await idbSet(DRIVERS_STORE, projectId, next);
+    } catch {
+      // silent
+    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "unknown" };
@@ -1287,7 +1421,42 @@ export interface ToolialBackup {
 }
 
 export async function exportAllProjects(): Promise<ToolialBackup> {
-  const allProjects = loadProjects();
+  let allProjects: StoredProject[] = [];
+  try {
+    const res = await fetch(`/api/projects`, { cache: "no-store" });
+    if (res.ok) {
+      const json = (await res.json()) as {
+        projects: Array<{
+          id: string;
+          name: string;
+          type: string | null;
+          coverImage: string | null;
+          address: string | null;
+          mapsLink: string | null;
+          city: string | null;
+          createdAt: string;
+        }>;
+      };
+      allProjects = json.projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        type: (p.type ?? null) as StoredProject["type"],
+        coverImage: p.coverImage ?? undefined,
+        address: p.address ?? undefined,
+        mapsLink: p.mapsLink ?? undefined,
+        city: p.city ?? undefined,
+        createdAt: p.createdAt,
+      }));
+    }
+  } catch {
+    // fallthrough a localStorage
+  }
+  // Merge con progetti local-only (es. Forte Tesoro pre-migrazione): così
+  // l'export include anche quelli ancora in localStorage/IDB per re-importarli.
+  const dbIds = new Set(allProjects.map((p) => p.id));
+  for (const local of loadProjects()) {
+    if (!dbIds.has(local.id)) allProjects.push(local);
+  }
   const backups: ProjectBackup[] = [];
   for (const p of allProjects) {
     const [sources, kb, brief, map, drivers] = await Promise.all([
@@ -1342,20 +1511,11 @@ export async function importProjects(
       errors: ["Formato non riconosciuto"],
     };
   }
-  const r: Partial<ToolialBackup> = {
-    version: 2,
-    exportedAt: "",
-    projects: rAny.projects as ProjectBackup[],
-    apiKeys:
-      rAny.apiKeys && typeof rAny.apiKeys === "object"
-        ? (rAny.apiKeys as ApiKeysStore)
-        : undefined,
-  };
 
-  // Ripristina API keys se presenti (solo backup v2+)
-  if (r.apiKeys && typeof r.apiKeys === "object") {
+  // Ripristina API keys se presenti (sempre locali — localStorage cifrato)
+  if (rAny.apiKeys && typeof rAny.apiKeys === "object") {
     try {
-      saveAllApiKeys(r.apiKeys);
+      saveAllApiKeys(rAny.apiKeys as ApiKeysStore);
     } catch (e) {
       errors.push(
         `Errore ripristino chiavi API: ${e instanceof Error ? e.message : "unknown"}`,
@@ -1363,40 +1523,92 @@ export async function importProjects(
     }
   }
 
-  const existing = loadProjects();
-  const existingById = new Map(existing.map((p) => [p.id, p]));
-
   let imported = 0;
   let skipped = 0;
-  const projectsList = r.projects ?? [];
 
-  for (const b of projectsList) {
+  for (const b of rAny.projects as ProjectBackup[]) {
     if (!b?.project?.id || !b?.project?.name) {
       skipped++;
       continue;
     }
-    const existingP = existingById.get(b.project.id);
-    if (existingP && mode === "merge") {
-      // merge: non sovrascrive esistente a meno che tutti i dati siano vuoti
-      skipped++;
-      continue;
-    }
     try {
-      // Salva metadata progetto in localStorage
-      existingById.set(b.project.id, b.project);
-      // Progress
-      if (b.progress) {
-        localStorage.setItem(
-          `toolia-project-${b.project.id}-progress`,
-          JSON.stringify(b.progress),
-        );
+      // 1) Progetto: GET per verificare esistenza
+      const existsRes = await fetch(`/api/projects/${b.project.id}`, {
+        cache: "no-store",
+      });
+      const existsInDb = existsRes.ok;
+
+      if (existsInDb && mode === "merge") {
+        skipped++;
+        continue;
       }
-      // IndexedDB stores
-      if (b.sources) await idbSet(SOURCES_STORE, b.project.id, b.sources);
-      if (b.kb) await idbSet(KB_STORE, b.project.id, b.kb);
-      if (b.brief) await idbSet(BRIEF_STORE, b.project.id, b.brief);
-      if (b.map) await idbSet(MAP_STORE, b.project.id, b.map);
-      if (b.drivers) await idbSet(DRIVERS_STORE, b.project.id, b.drivers);
+
+      if (!existsInDb) {
+        // Postgres non supporta set-id su POST normale; usiamo endpoint dedicato di import.
+        const res = await fetch(`/api/projects/import`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ project: b.project }),
+        });
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}));
+          errors.push(
+            `${b.project.name}: creazione progetto ${json?.error ?? res.status}`,
+          );
+          skipped++;
+          continue;
+        }
+      }
+
+      // 2) Sub-dati via PUT alle varie API
+      if (b.sources) {
+        await fetch(`/api/projects/${b.project.id}/sources`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(b.sources),
+        });
+      }
+      if (b.kb) {
+        await fetch(`/api/projects/${b.project.id}/kb`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(b.kb),
+        });
+      }
+      if (b.brief) {
+        await fetch(`/api/projects/${b.project.id}/brief`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(b.brief),
+        });
+      }
+      if (b.map) {
+        await fetch(`/api/projects/${b.project.id}/map`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(b.map),
+        });
+      }
+      if (b.drivers) {
+        await fetch(`/api/projects/${b.project.id}/drivers-personas`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(b.drivers),
+        });
+      }
+
+      // Progress locale (rimane per-browser per ora)
+      if (b.progress) {
+        try {
+          localStorage.setItem(
+            `toolia-project-${b.project.id}-progress`,
+            JSON.stringify(b.progress),
+          );
+        } catch {
+          // silent
+        }
+      }
+
       imported++;
     } catch (e) {
       errors.push(
@@ -1404,18 +1616,6 @@ export async function importProjects(
       );
       skipped++;
     }
-  }
-
-  // Persisti lista progetti aggiornata
-  try {
-    localStorage.setItem(
-      PROJECTS_KEY,
-      JSON.stringify(Array.from(existingById.values())),
-    );
-  } catch (e) {
-    errors.push(
-      `Errore salvataggio lista progetti: ${e instanceof Error ? e.message : "unknown"}`,
-    );
   }
 
   // Notifica la UI
