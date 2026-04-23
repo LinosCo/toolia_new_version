@@ -120,8 +120,6 @@ export default function ImpostazioniPage() {
               <Separator />
               <BackupSection />
               <Separator />
-              <DemoSeedSection />
-              <Separator />
               <DangerZone />
             </div>
           </div>
@@ -1106,93 +1104,12 @@ function BackupSection() {
   );
 }
 
-function DemoSeedSection() {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleSeed = async () => {
-    setBusy(true);
-    setMsg(null);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/seed-demos", { method: "POST" });
-      const json = await res.json();
-      if (!res.ok) {
-        setError(
-          json?.error === "forbidden"
-            ? "Solo gli Admin possono caricare i demo."
-            : "Errore durante il caricamento.",
-        );
-        return;
-      }
-      setMsg(
-        `${json.inserted} progetti demo caricati · ${json.skipped} già presenti`,
-      );
-    } catch {
-      setError("Errore di rete.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <section className="space-y-6">
-      <SectionHeader
-        id="demo"
-        kicker="07"
-        title="Progetti demo"
-        description="Carica 6 progetti di esempio (Villa La Rotonda, Museo del Risorgimento, Antinori, Cascate di Molina, Ghetto di Venezia, Reggia di Colorno) per vedere la dashboard piena."
-      />
-      <Card>
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium">Carica progetti demo</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              Idempotente: se esistono già non vengono duplicati. Li puoi
-              eliminare uno a uno dalla dashboard.
-            </p>
-          </div>
-          <Button
-            type="button"
-            onClick={handleSeed}
-            disabled={busy}
-            className="rounded-full"
-          >
-            {busy ? (
-              <>
-                <Loader2
-                  className="h-4 w-4 mr-1 animate-spin"
-                  strokeWidth={1.8}
-                />
-                Carico…
-              </>
-            ) : (
-              "Carica demo"
-            )}
-          </Button>
-        </div>
-        {msg && (
-          <div className="mt-4 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-xs text-emerald-900">
-            {msg}
-          </div>
-        )}
-        {error && (
-          <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
-            {error}
-          </div>
-        )}
-      </Card>
-    </section>
-  );
-}
-
 function DangerZone() {
   return (
     <section className="space-y-6">
       <SectionHeader
         id="pericolo"
-        kicker="08"
+        kicker="07"
         title="Zona pericolosa"
         description="Azioni irreversibili. Procedi solo se sai cosa stai facendo."
       />
