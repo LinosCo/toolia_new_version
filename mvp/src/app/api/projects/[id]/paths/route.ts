@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError, requireRole } from "@/lib/rbac";
-import type { NarratorKind } from "@/generated/prisma/enums";
 
 async function assertProject(id: string, tenantId: string) {
   return prisma.project.findFirst({
@@ -10,20 +9,16 @@ async function assertProject(id: string, tenantId: string) {
   });
 }
 
-const KINDS: NarratorKind[] = ["backbone", "character"];
-
 const SELECT = {
   id: true,
   name: true,
-  kind: true,
-  voiceStyle: true,
-  language: true,
-  characterBio: true,
-  preferredDrivers: true,
-  voiceModel: true,
-  voiceId: true,
-  portraitUrl: true,
-  characterContractJson: true,
+  description: true,
+  durationTargetMinutes: true,
+  poiOrderJson: true,
+  corePoiIds: true,
+  narratorId: true,
+  themeFocus: true,
+  chaptersJson: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -37,16 +32,16 @@ export async function GET(
     const user = await getSessionUser();
     const p = await assertProject(id, user.tenantId);
     if (!p) return NextResponse.json({ error: "not_found" }, { status: 404 });
-    const narrators = await prisma.narratorProfile.findMany({
+    const paths = await prisma.path.findMany({
       where: { projectId: id },
-      orderBy: [{ kind: "asc" }, { createdAt: "asc" }],
+      orderBy: { createdAt: "asc" },
       select: SELECT,
     });
-    return NextResponse.json({ narrators });
+    return NextResponse.json({ paths });
   } catch (err) {
     const authRes = handleAuthError(err);
     if (authRes) return authRes;
-    console.error("[api narrators GET]", err);
+    console.error("[api paths GET]", err);
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }
@@ -67,42 +62,34 @@ export async function POST(
     if (name.length < 1) {
       return NextResponse.json({ error: "name_required" }, { status: 400 });
     }
-    const voiceStyle =
-      typeof body?.voiceStyle === "string" ? body.voiceStyle.trim() : "";
-    const kind: NarratorKind = KINDS.includes(body?.kind)
-      ? body.kind
-      : "backbone";
 
-    const narrator = await prisma.narratorProfile.create({
+    const path = await prisma.path.create({
       data: {
         projectId: id,
         name,
-        kind,
-        voiceStyle: voiceStyle || "neutro",
-        language: typeof body?.language === "string" ? body.language : "it",
-        characterBio:
-          typeof body?.characterBio === "string" ? body.characterBio : null,
-        preferredDrivers: Array.isArray(body?.preferredDrivers)
-          ? body.preferredDrivers.filter((x: unknown) => typeof x === "string")
+        description:
+          typeof body?.description === "string" ? body.description : "",
+        durationTargetMinutes:
+          typeof body?.durationTargetMinutes === "number"
+            ? body.durationTargetMinutes
+            : null,
+        poiOrderJson: Array.isArray(body?.poiOrder) ? body.poiOrder : [],
+        corePoiIds: Array.isArray(body?.corePoiIds)
+          ? body.corePoiIds.filter((x: unknown) => typeof x === "string")
           : [],
-        voiceModel:
-          typeof body?.voiceModel === "string" ? body.voiceModel : null,
-        voiceId: typeof body?.voiceId === "string" ? body.voiceId : null,
-        portraitUrl:
-          typeof body?.portraitUrl === "string" ? body.portraitUrl : null,
-        characterContractJson:
-          body?.characterContractJson &&
-          typeof body.characterContractJson === "object"
-            ? body.characterContractJson
-            : {},
+        narratorId:
+          typeof body?.narratorId === "string" ? body.narratorId : null,
+        themeFocus:
+          typeof body?.themeFocus === "string" ? body.themeFocus : null,
+        chaptersJson: Array.isArray(body?.chapters) ? body.chapters : [],
       },
       select: SELECT,
     });
-    return NextResponse.json({ narrator }, { status: 201 });
+    return NextResponse.json({ path }, { status: 201 });
   } catch (err) {
     const authRes = handleAuthError(err);
     if (authRes) return authRes;
-    console.error("[api narrators POST]", err);
+    console.error("[api paths POST]", err);
     return NextResponse.json({ error: "internal" }, { status: 500 });
   }
 }

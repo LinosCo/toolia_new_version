@@ -443,8 +443,9 @@ model NarratorProfile {
   language              String        @default("it")
   characterBio          String?       @db.Text
   preferredDrivers      String[]      @default([])
-  voiceModel            String?       // openai-tts / elevenlabs-...
-  voiceId               String?       // provider-specific
+  voiceModel            String?       // openai-tts / elevenlabs
+  voiceId               String?       // provider-specific (ElevenLabs voice_id)
+  portraitUrl           String?       @db.Text // ritratto AI (base64 dataURL o URL R2 in futuro)
   characterContractJson Json          @default("{}") // function, territorio, tono, limiti (solo per kind=character)
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
@@ -478,6 +479,7 @@ model Path {
   description            String   @db.Text
   durationTargetMinutes  Int?
   poiOrderJson           Json     @default("[]")
+  corePoiIds             String[] @default([]) // POI essenziali: vanno mantenuti sempre quando il percorso si accorcia
   narratorId             String?
   narrator               NarratorProfile? @relation(fields: [narratorId], references: [id], onDelete: SetNull)
   themeFocus             String?

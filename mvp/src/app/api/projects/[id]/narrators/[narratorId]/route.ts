@@ -15,6 +15,7 @@ const SELECT = {
   preferredDrivers: true,
   voiceModel: true,
   voiceId: true,
+  portraitUrl: true,
   characterContractJson: true,
   createdAt: true,
   updatedAt: true,
@@ -59,6 +60,8 @@ export async function PATCH(
       data.voiceModel = body.voiceModel;
     if (typeof body?.voiceId === "string" || body?.voiceId === null)
       data.voiceId = body.voiceId;
+    if (typeof body?.portraitUrl === "string" || body?.portraitUrl === null)
+      data.portraitUrl = body.portraitUrl;
     if (
       body?.characterContractJson &&
       typeof body.characterContractJson === "object"

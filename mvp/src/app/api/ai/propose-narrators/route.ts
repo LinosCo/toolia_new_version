@@ -27,6 +27,14 @@ interface Body {
     payoff: string;
   }[];
   pois?: { id: string; name: string; description: string }[];
+  voices?: {
+    voice_id: string;
+    name: string;
+    gender?: string;
+    age?: string;
+    accent?: string;
+    description?: string;
+  }[];
 }
 
 function buildClient(provider: Provider, apiKey: string): OpenAI {
@@ -40,34 +48,40 @@ function modelFor(provider: Provider): string {
   return "gpt-4o";
 }
 
-const SYSTEM = `Sei il direttore narrativo di Toolia Studio. Il tuo compito è proporre le voci dell'audioguida per un progetto culturale italiano.
+const SYSTEM = `Sei il direttore narrativo di Toolia Studio. Il tuo compito è proporre le voci dell'audioguida per un progetto culturale italiano, RIEMPIENDO OGNI CAMPO. L'operatore non compila manualmente: tu fai tutto il lavoro editoriale.
 
 Struttura richiesta (da docs/spec e legacy plans):
-- UN narratore "backbone": principale, neutro o leggermente caratterizzato, tiene insieme la visita, apre e chiude i capitoli, regge orientamento e bridge principali. Non deve essere troppo teatrale o invadente.
+- UN narratore "backbone": principale, neutro o leggermente caratterizzato, tiene insieme la visita, apre e chiude i capitoli, regge orientamento e bridge principali. Non troppo teatrale o invadente.
 - UNO o DUE narratori "character": personaggi contestualizzati (reale/ruolo tipico/composito con cautela) per dare memoria, colore, punto di vista. Preferenza: reale > ruolo contestualizzato > composito.
 
-Per ogni character crea un Character Contract con:
-- identity: chi è + tipo (reale/ruolo/composito)
-- relationshipToPlace: che rapporto ha col luogo
-- function: guida | testimone | esperto | gioco
-- territoryOfCompetence: su cosa parla bene (lista driver/domini)
-- territoryOfPresence: dove entra davvero (POI ids o macro-aree)
-- target: adulti | generalista | family
-- toneAndRegister: tono e registro
-- factualLimits: cosa non sa o non deve dire con certezza
-- thingsToAvoid: cliché, forzature, banalizzazioni da evitare
-
-Per ogni narratore:
-- name: nome breve (es. "Marco il Custode", "Voce del Museo")
+OGNI narratore DEVE avere:
+- name: nome breve e memorabile (es. "Marco il Custode", "Voce del Museo")
 - kind: "backbone" | "character"
-- voiceStyle: sobrio | caldo | evocativo | ironico | coinvolgente | formale | poetico
-- characterBio: 1-3 frasi che guidano l'AI nella generazione schede (chi è, come parla, da dove guarda)
-- preferredDrivers: array di id dei driver che questo narratore esalta di più (solo per character)
-- characterContractJson: il contratto (vuoto {} per backbone, pieno per character)
+- voiceStyle: UNO tra sobrio-autorevole | coinvolgente | caldo | evocativo | ironico | formale | poetico
+- characterBio: 2-4 frasi in italiano. Chi è, come parla, da dove guarda, il suo angolo preferito. Guida l'AI nella generazione schede.
+- preferredDrivers: array di driver ID (dall'elenco DRIVER che ti do) su cui questo narratore esalta di più. MINIMO 1, MASSIMO 3. USA ESATTAMENTE GLI ID che trovi in [...]. Il backbone prende i driver più centrali del progetto; i character si specializzano sui driver che gli calzano.
+- voiceId: ID ESATTO di una voce dall'elenco VOCI DISPONIBILI che ti fornisco. Scegli in base a: tono narratore (caldo/sobrio/ironico/evocativo), genere coerente con la bio (uomo/donna), età, accento italiano quando possibile. Se non ci sono voci italiane usa "multilingual" o neutra. Voci diverse per narratori diversi (backbone e character non devono avere la stessa).
+- voiceModel: sempre "elevenlabs" se assegni un voiceId
+- characterContractJson: oggetto JSON. Per il BACKBONE riempi almeno {toneAndRegister, factualLimits, thingsToAvoid}. Per i CHARACTER riempi TUTTI i campi sotto.
 
-Usa l'italiano. Output: JSON valido, nessun testo fuori dal JSON.
+Character Contract completo (per kind=character):
+{
+  "identity": "chi è + tipo (reale/ruolo contestualizzato/composito)",
+  "function": "guida" | "testimone" | "esperto" | "gioco",
+  "relationshipToPlace": "che rapporto ha col luogo",
+  "territoryOfCompetence": "su cosa parla bene (domini e temi)",
+  "territoryOfPresence": ["poi_id_1", "poi_id_2"],
+  "target": "adulti" | "generalista" | "family",
+  "toneAndRegister": "tono e registro concreti",
+  "factualLimits": "cosa non sa o non deve dire con certezza",
+  "thingsToAvoid": "cliché, forzature, banalizzazioni da evitare"
+}
 
-Formato:
+Per territoryOfPresence USA ESATTAMENTE gli ID POI che trovi nell'elenco POI. Se il personaggio vive/lavora ovunque, includi un sottoinsieme coerente (non vuoto). Se non hai info sufficienti, lista i primi 3 POI più rilevanti al suo ruolo.
+
+Usa l'italiano. Output: SOLO JSON valido, nessun testo fuori dal JSON.
+
+Formato ESATTO:
 {
   "narrators": [
     {
@@ -75,8 +89,10 @@ Formato:
       "kind": "backbone" | "character",
       "voiceStyle": "...",
       "characterBio": "...",
-      "preferredDrivers": [],
-      "characterContractJson": { ... } | {}
+      "preferredDrivers": ["driver_id_1", "driver_id_2"],
+      "voiceId": "elevenlabs_voice_id",
+      "voiceModel": "elevenlabs",
+      "characterContractJson": { ... }
     }
   ]
 }`;
@@ -103,6 +119,7 @@ export async function POST(req: NextRequest) {
     const drivers = (body.drivers ?? []).slice(0, 20);
     const personas = (body.personas ?? []).slice(0, 10);
     const pois = (body.pois ?? []).slice(0, 30);
+    const voices = (body.voices ?? []).slice(0, 40);
 
     const user = `Progetto: ${projectName}${type ? ` · tipo ${type}` : ""}${
       city ? ` · ${city}` : ""
@@ -130,7 +147,10 @@ ${pois
   .map((p) => `- [${p.id}] ${p.name}: ${p.description}`)
   .join("\n")}
 
-Proponi 1 backbone + 1-2 character adatti a questo luogo e brief.`;
+VOCI DISPONIBILI (${voices.length}) — scegli voiceId ESATTAMENTE da questa lista:
+${voices.map((v) => `- ${v.voice_id} · ${v.name}${v.gender ? ` · ${v.gender}` : ""}${v.age ? ` · ${v.age}` : ""}${v.accent ? ` · ${v.accent}` : ""}${v.description ? ` · ${v.description}` : ""}`).join("\n")}
+
+Proponi 1 backbone + 1-2 character adatti a questo luogo e brief. Per ogni narratore ASSEGNA una voiceId dall'elenco sopra, coerente con la bio e il genere. Narratori diversi → voci diverse.`;
 
     const client = buildClient(provider, apiKey);
     const model = modelFor(provider);

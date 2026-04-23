@@ -1064,11 +1064,8 @@ function Section({
             </p>
           </div>
         </div>
-        <div
-          className="flex items-center gap-2 shrink-0"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {action}
+        <div className="flex items-center gap-2 shrink-0">
+          <div onClick={(e) => e.stopPropagation()}>{action}</div>
           <ChevronDown
             className={cn(
               "h-4 w-4 text-muted-foreground transition-transform",
