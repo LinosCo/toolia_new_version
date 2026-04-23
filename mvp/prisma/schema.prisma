@@ -434,22 +434,29 @@ model ProjectDriverConfig {
 // ============================================================
 
 model NarratorProfile {
-  id               String   @id @default(cuid())
-  projectId        String
-  project          Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name             String
-  voiceStyle       String
-  language         String
-  characterBio     String?  @db.Text
-  preferredDrivers String[] @default([])
-  voiceModel       String?  // openai-tts / elevenlabs-...
-  voiceId          String?  // provider-specific
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-  schede           Scheda[]
-  paths            Path[]
+  id                    String        @id @default(cuid())
+  projectId             String
+  project               Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                  String
+  kind                  NarratorKind  @default(backbone)
+  voiceStyle            String
+  language              String        @default("it")
+  characterBio          String?       @db.Text
+  preferredDrivers      String[]      @default([])
+  voiceModel            String?       // openai-tts / elevenlabs-...
+  voiceId               String?       // provider-specific
+  characterContractJson Json          @default("{}") // function, territorio, tono, limiti (solo per kind=character)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+  schede                Scheda[]
+  paths                 Path[]
 
   @@index([projectId])
+}
+
+enum NarratorKind {
+  backbone
+  character
 }
 
 model Theme {

@@ -37,6 +37,24 @@ export const PROJECT_STEPS: StepDef[] = [
     kicker: "04",
     description: "Motore editoriale: driver, personas, lenti, regole",
   },
+  {
+    slug: "percorsi",
+    label: "Percorsi e Narratori",
+    kicker: "05",
+    description: "Voci narranti, itinerari tematici, capitoli",
+  },
+  {
+    slug: "schede",
+    label: "Schede e Audio",
+    kicker: "06",
+    description: "Generazione testi, approvazione, TTS",
+  },
+  {
+    slug: "pubblica",
+    label: "Pubblica",
+    kicker: "07",
+    description: "Checklist qualità + preview app visitatore",
+  },
 ];
 
 export function ProjectStepper({
