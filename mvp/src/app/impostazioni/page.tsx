@@ -14,11 +14,6 @@ import {
   Sparkles,
   Volume2,
   Map as MapIcon,
-  Download,
-  Upload,
-  Database,
-  Loader2,
-  AlertCircle,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -43,11 +38,6 @@ import {
   saveServiceKey,
   type ServiceKey,
 } from "@/lib/api-keys";
-import {
-  exportAllProjects,
-  importProjects,
-  type ImportResult,
-} from "@/lib/project-store";
 import { cn } from "@/lib/utils";
 
 const sections = [
@@ -56,7 +46,6 @@ const sections = [
   { id: "api", label: "Chiavi API", icon: KeyRound },
   { id: "team", label: "Team", icon: Users2 },
   { id: "aspetto", label: "Aspetto", icon: Palette },
-  { id: "backup", label: "Backup progetti", icon: Database },
   { id: "pericolo", label: "Zona pericolosa", icon: ShieldAlert },
 ];
 
@@ -117,8 +106,6 @@ export default function ImpostazioniPage() {
               <TeamSection />
               <Separator />
               <AppearanceSection />
-              <Separator />
-              <BackupSection />
               <Separator />
               <DangerZone />
             </div>
@@ -907,209 +894,12 @@ function AppearanceSection() {
   );
 }
 
-function BackupSection() {
-  const [busy, setBusy] = useState<"export" | "import" | null>(null);
-  const [result, setResult] = useState<ImportResult | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleExport = async () => {
-    setBusy("export");
-    setError(null);
-    setResult(null);
-    try {
-      const backup = await exportAllProjects();
-      const blob = new Blob([JSON.stringify(backup, null, 2)], {
-        type: "application/json",
-      });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      const date = new Date().toISOString().slice(0, 10);
-      a.href = url;
-      a.download = `toolia-backup-${date}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Errore export");
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const handleImport = async (file: File) => {
-    setBusy("import");
-    setError(null);
-    setResult(null);
-    try {
-      const text = await file.text();
-      const raw = JSON.parse(text);
-      const mode = window.confirm(
-        "Un progetto con lo stesso ID esiste già nel browser: vuoi SOVRASCRIVERLO con il file importato?\n\nOK = sovrascrivi · Annulla = salta i duplicati",
-      )
-        ? "replace"
-        : "merge";
-      const res = await importProjects(raw, mode);
-      setResult(res);
-    } catch (e) {
-      setError(
-        e instanceof Error ? e.message : "File non valido o danneggiato",
-      );
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const fileInputId = "import-backup-input";
-
-  return (
-    <section className="space-y-6">
-      <SectionHeader
-        id="backup"
-        kicker="06"
-        title="Backup dei progetti"
-        description="Esporta tutti i progetti (Fonti, Brief, Luogo, Driver e Personas) + le chiavi API in un file JSON. Importa il file su un altro browser o dispositivo per ritrovare tutto."
-      />
-      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 flex items-start gap-3">
-        <AlertCircle
-          className="h-4 w-4 text-amber-700 shrink-0 mt-0.5"
-          strokeWidth={1.8}
-        />
-        <p className="text-xs text-amber-900 leading-relaxed">
-          <strong>Il file contiene le tue chiavi API</strong> (OpenAI, Google
-          Maps, ElevenLabs). Conservalo in un posto sicuro, non condividerlo
-          pubblicamente e non committarlo su git.
-        </p>
-      </div>
-      <Card>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border border-border/70 bg-card p-5 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Download className="h-4 w-4 text-foreground" strokeWidth={1.8} />
-              <p className="text-sm font-medium">Esporta tutti i progetti</p>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Scarica un file JSON con tutti i progetti del browser corrente.
-              Nessun dato viene inviato online.
-            </p>
-            <Button
-              type="button"
-              onClick={handleExport}
-              disabled={busy !== null}
-              className="self-start"
-            >
-              {busy === "export" ? (
-                <>
-                  <Loader2
-                    className="h-4 w-4 mr-1 animate-spin"
-                    strokeWidth={1.8}
-                  />
-                  Esporto…
-                </>
-              ) : (
-                <>
-                  <Download className="h-4 w-4 mr-1" strokeWidth={1.8} />
-                  Scarica backup JSON
-                </>
-              )}
-            </Button>
-          </div>
-
-          <div className="rounded-xl border border-border/70 bg-card p-5 flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <Upload className="h-4 w-4 text-foreground" strokeWidth={1.8} />
-              <p className="text-sm font-medium">Importa backup</p>
-            </div>
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              Carica un file JSON esportato da un altro browser. I progetti
-              esistenti restano: decidi caso per caso se sovrascrivere.
-            </p>
-            <label
-              htmlFor={fileInputId}
-              className={cn(
-                "self-start inline-flex items-center gap-1 h-10 px-4 rounded-full text-sm font-medium cursor-pointer transition-colors",
-                busy
-                  ? "bg-muted text-muted-foreground cursor-wait"
-                  : "bg-foreground text-background hover:bg-foreground/90",
-              )}
-            >
-              {busy === "import" ? (
-                <>
-                  <Loader2
-                    className="h-4 w-4 mr-1 animate-spin"
-                    strokeWidth={1.8}
-                  />
-                  Importo…
-                </>
-              ) : (
-                <>
-                  <Upload className="h-4 w-4 mr-1" strokeWidth={1.8} />
-                  Scegli file JSON
-                </>
-              )}
-              <input
-                id={fileInputId}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                disabled={busy !== null}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) void handleImport(f);
-                  e.target.value = "";
-                }}
-              />
-            </label>
-          </div>
-        </div>
-
-        {error && (
-          <div className="mt-4 rounded-xl border border-destructive/30 bg-destructive/[0.04] p-4 flex items-start gap-3">
-            <AlertCircle
-              className="h-4 w-4 text-destructive shrink-0 mt-0.5"
-              strokeWidth={1.8}
-            />
-            <p className="text-xs text-muted-foreground">{error}</p>
-          </div>
-        )}
-
-        {result && (
-          <div className="mt-4 rounded-xl border border-brand/30 bg-brand/[0.04] p-4 flex items-start gap-3">
-            <Check
-              className="h-4 w-4 text-brand shrink-0 mt-0.5"
-              strokeWidth={1.8}
-            />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium">
-                Import completato: {result.imported} importati ·{" "}
-                {result.skipped} saltati
-              </p>
-              {result.errors.length > 0 && (
-                <ul className="mt-2 text-xs text-destructive space-y-0.5">
-                  {result.errors.map((err, i) => (
-                    <li key={i}>• {err}</li>
-                  ))}
-                </ul>
-              )}
-              {result.imported > 0 && (
-                <p className="text-xs text-muted-foreground mt-2">
-                  Ricarica la dashboard per vedere i progetti importati.
-                </p>
-              )}
-            </div>
-          </div>
-        )}
-      </Card>
-    </section>
-  );
-}
-
 function DangerZone() {
   return (
     <section className="space-y-6">
       <SectionHeader
         id="pericolo"
-        kicker="07"
+        kicker="06"
         title="Zona pericolosa"
         description="Azioni irreversibili. Procedi solo se sai cosa stai facendo."
       />
