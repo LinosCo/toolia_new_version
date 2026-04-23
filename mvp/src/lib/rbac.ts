@@ -1,4 +1,5 @@
 import { auth } from "@/auth";
+import { prisma } from "@/lib/db";
 import type { Role } from "@/generated/prisma/enums";
 
 export class UnauthorizedError extends Error {
@@ -22,7 +23,31 @@ export interface SessionUser {
   role: Role;
 }
 
+let devUserCache: SessionUser | null = null;
+
+async function getDevBypassUser(): Promise<SessionUser> {
+  if (devUserCache) return devUserCache;
+  const admin = await prisma.user.findFirst({
+    where: { role: "Admin" },
+    select: { id: true, email: true, tenantId: true, role: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!admin) {
+    throw new UnauthorizedError();
+  }
+  devUserCache = {
+    id: admin.id,
+    email: admin.email,
+    tenantId: admin.tenantId,
+    role: admin.role,
+  };
+  return devUserCache;
+}
+
 export async function getSessionUser(): Promise<SessionUser> {
+  if (process.env.DEV_BYPASS_AUTH === "true") {
+    return getDevBypassUser();
+  }
   const session = await auth();
   const u = session?.user;
   if (!u?.id || !u?.tenantId || !u?.role || !u?.email) {
