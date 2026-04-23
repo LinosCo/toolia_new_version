@@ -1036,10 +1036,17 @@ function Section({
         highlight === "warn" ? "border-amber-300" : "border-border",
       )}
     >
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setOpen(!open)}
-        className="w-full px-5 py-4 flex items-start justify-between gap-3 hover:bg-muted/30 transition-colors text-left"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setOpen(!open);
+          }
+        }}
+        className="w-full px-5 py-4 flex items-start justify-between gap-3 hover:bg-muted/30 transition-colors text-left cursor-pointer select-none"
       >
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <span className="mt-0.5 text-muted-foreground shrink-0">{icon}</span>
@@ -1070,7 +1077,7 @@ function Section({
             strokeWidth={1.8}
           />
         </div>
-      </button>
+      </div>
       {open && (
         <div className="px-5 pb-5 pt-1 border-t border-border/60">
           {children}
