@@ -43,6 +43,7 @@ export default function ProjectLayout({
   const [pathsCount, setPathsCount] = useState(0);
   const [schedeCount, setSchedeCount] = useState(0);
   const [publishedSchedeCount, setPublishedSchedeCount] = useState(0);
+  const [projectPublished, setProjectPublished] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -61,6 +62,7 @@ export default function ProjectLayout({
               mapsLink: string | null;
               city: string | null;
               createdAt: string;
+              status?: string;
             };
           };
           const api = json.project;
@@ -75,6 +77,7 @@ export default function ProjectLayout({
             createdAt: api.createdAt,
           };
           cacheProjectLocally(p);
+          if (alive) setProjectPublished(api.status === "published");
         }
       } catch {
         // fallthrough — p rimane null
@@ -154,6 +157,7 @@ export default function ProjectLayout({
       (drivers?.personas.length ?? 0) >= 1,
     percorsi: narratorsCount >= 1 && pathsCount >= 1,
     schede: schedeCount >= 1 && publishedSchedeCount >= 1,
+    pubblica: projectPublished,
   };
 
   if (project === undefined) {

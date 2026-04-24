@@ -1002,18 +1002,30 @@ export async function saveMap(
   map: ProjectMap,
 ): Promise<{ ok: true } | { ok: false; reason: "unknown" }> {
   const next = { ...map, updatedAt: new Date().toISOString() };
+  // IDB conserva sempre le foto (cache locale).
+  try {
+    await idbSet(MAP_STORE, projectId, next);
+  } catch {
+    // silent
+  }
+  // Al server invio la mappa SENZA le foto base64: sono grosse e farebbero
+  // saltare il body limit del PUT bulk. Le foto vivono separate via PATCH
+  // singolo POI (/pois/[poiId]).
+  const payload = {
+    ...next,
+    pois: next.pois.map((p) => {
+      const rest = { ...p };
+      delete (rest as { image?: string }).image;
+      return rest;
+    }),
+  };
   try {
     const res = await fetch(`/api/projects/${projectId}/map`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(next),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) return { ok: false, reason: "unknown" };
-    try {
-      await idbSet(MAP_STORE, projectId, next);
-    } catch {
-      // silent
-    }
     return { ok: true };
   } catch {
     return { ok: false, reason: "unknown" };

@@ -151,6 +151,15 @@ export async function PUT(
 
     // Strategia full-replace per MVP: cancella tutto e riscrive.
     // Riutilizziamo gli id client-side (cuid) per coerenza anche in relazioni future.
+    // Preservo le foto esistenti se il payload bulk non le include
+    // (ora il client invia solo il PATCH dedicato per imageUrl).
+    const existingImages = new Map<string, string | null>();
+    const prior = await prisma.pOI.findMany({
+      where: { projectId: id },
+      select: { id: true, imageUrl: true },
+    });
+    for (const p of prior) existingImages.set(p.id, p.imageUrl);
+
     await prisma.$transaction(async (tx) => {
       await tx.mapAnchor.deleteMany({ where: { projectId: id } });
       await tx.pOI.deleteMany({ where: { projectId: id } });
@@ -185,7 +194,10 @@ export async function PUT(
               ? (poi.type as PoiType)
               : "indoor",
             minStaySeconds: poi.minStaySeconds ?? 60,
-            imageUrl: poi.image ?? null,
+            imageUrl:
+              poi.image !== undefined
+                ? (poi.image ?? null)
+                : (existingImages.get(poi.id) ?? null),
             orderIndex: poi.order ?? 0,
             planimetriaX: poi.planimetriaX ?? null,
             planimetriaY: poi.planimetriaY ?? null,

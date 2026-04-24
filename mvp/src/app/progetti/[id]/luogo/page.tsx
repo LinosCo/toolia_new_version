@@ -122,6 +122,11 @@ export default function LuogoStepPage({
     ProjectMap["spatialMode"] | null
   >(null);
   const autoProposeAttemptedRef = useRef(false);
+  const autoGenImagesRef = useRef(false);
+  const [autoGenProgress, setAutoGenProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
@@ -275,6 +280,49 @@ export default function LuogoStepPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, map.pois.length, canPropose, proposing, proposedPois]);
 
+  // Auto-genera foto mancanti via AI quando entra in questa pagina.
+  // Silenzioso, in sequenza, una chiamata per volta. Triggers una sola volta.
+  useEffect(() => {
+    if (!loaded || autoGenImagesRef.current) return;
+    if (!project?.name) return;
+    const openaiKey = loadApiKeys().llm.openai;
+    if (!openaiKey) return;
+    const missing = map.pois.filter((p) => !p.image);
+    if (missing.length === 0) return;
+    autoGenImagesRef.current = true;
+
+    (async () => {
+      setAutoGenProgress({ done: 0, total: missing.length });
+      for (let i = 0; i < missing.length; i++) {
+        const poi = missing[i];
+        try {
+          const res = await fetch("/api/ai/generate-poi-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              apiKey: openaiKey,
+              style: "fotorealistico",
+              poiName: poi.name,
+              poiDescription: poi.description,
+              projectName: project.name,
+              projectType: project.type,
+              city: project.city,
+            }),
+          });
+          const data = await res.json();
+          if (res.ok && data.dataUrl) {
+            updatePoi(poi.id, { image: data.dataUrl });
+          }
+        } catch {
+          // skip, continua col prossimo
+        }
+        setAutoGenProgress({ done: i + 1, total: missing.length });
+      }
+      setTimeout(() => setAutoGenProgress(null), 3000);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, project?.id, map.pois.length]);
+
   const acceptProposal = () => {
     if (!proposedZones || !proposedPois) return;
     const approvedList = proposedPois.filter((p) => p.approved);
@@ -318,10 +366,30 @@ export default function LuogoStepPage({
 
   /* ========================== POI CRUD ========================== */
 
-  const updatePoi = (id: string, patch: Partial<MapPoi>) => {
+  const updatePoi = (poiId: string, patch: Partial<MapPoi>) => {
+    // Le foto (dataURL base64) sono pesanti: se patch contiene image, salvo
+    // solo via PATCH dedicato. Niente persist bulk (che supera il body limit
+    // e manderebbe il PUT in timeout).
+    if ("image" in patch) {
+      const next = {
+        ...map,
+        pois: map.pois.map((p) => (p.id === poiId ? { ...p, ...patch } : p)),
+      };
+      setMapState(next);
+      fetch(`/api/projects/${projectId}/pois/${poiId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageUrl: patch.image ?? null }),
+      })
+        .then(() => {
+          window.dispatchEvent(new Event("toolia:map-updated"));
+        })
+        .catch(() => null);
+      return;
+    }
     persist({
       ...map,
-      pois: map.pois.map((p) => (p.id === id ? { ...p, ...patch } : p)),
+      pois: map.pois.map((p) => (p.id === poiId ? { ...p, ...patch } : p)),
     });
   };
 
@@ -459,6 +527,17 @@ export default function LuogoStepPage({
 
   return (
     <div className="min-h-screen flex flex-col">
+      {autoGenProgress && (
+        <div className="shrink-0 px-6 md:px-10 py-3 border-b border-border/60 bg-accent/40 flex items-center gap-3 text-sm">
+          <Loader2 className="h-4 w-4 animate-spin text-brand shrink-0" />
+          <span>
+            Genero le foto dei POI con AI —{" "}
+            <strong>
+              {autoGenProgress.done} di {autoGenProgress.total}
+            </strong>
+          </span>
+        </div>
+      )}
       <header className="shrink-0 px-6 md:px-10 pt-8 pb-6 border-b border-border/60">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">

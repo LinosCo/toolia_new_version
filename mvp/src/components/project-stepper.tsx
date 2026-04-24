@@ -49,6 +49,12 @@ export const PROJECT_STEPS: StepDef[] = [
     kicker: "06",
     description: "Testi dell'audioguida, approvazione, audio TTS",
   },
+  {
+    slug: "pubblica",
+    label: "Pubblica",
+    kicker: "07",
+    description: "Verifica, anteprima app visitatore, consegna",
+  },
 ];
 
 export function ProjectStepper({
