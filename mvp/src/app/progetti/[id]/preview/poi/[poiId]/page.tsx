@@ -236,7 +236,7 @@ export default function PoiDetailPage({
       </section>
 
       {/* Content */}
-      <div className="max-w-3xl mx-auto px-6 md:px-0 pt-10">
+      <div className="max-w-3xl mx-auto px-5 pt-8">
         {/* Bridge in ingresso */}
         {incomingBridge && (
           <div className="mb-8 pl-4 border-l-2 border-brand/70 text-muted-foreground italic font-heading text-lg leading-relaxed">
