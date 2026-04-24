@@ -1389,12 +1389,42 @@ export async function computeCompletedSteps(
   projectId: string,
 ): Promise<number> {
   if (typeof window === "undefined") return 0;
-  const [sources, kb, brief, map, drivers] = await Promise.all([
+  const [sources, brief, map, drivers, extras] = await Promise.all([
     loadSources(projectId),
-    loadKB(projectId),
     loadBrief(projectId),
     loadMap(projectId),
     loadDriversPersonas(projectId),
+    (async () => {
+      try {
+        const [narrators, paths, schede, project] = await Promise.all([
+          fetch(`/api/projects/${projectId}/narrators`).then((r) =>
+            r.ok ? r.json() : null,
+          ),
+          fetch(`/api/projects/${projectId}/paths`).then((r) =>
+            r.ok ? r.json() : null,
+          ),
+          fetch(`/api/projects/${projectId}/schede`).then((r) =>
+            r.ok ? r.json() : null,
+          ),
+          fetch(`/api/projects/${projectId}`).then((r) =>
+            r.ok ? r.json() : null,
+          ),
+        ]);
+        return {
+          narrators: narrators?.narrators?.length ?? 0,
+          paths: paths?.paths?.length ?? 0,
+          schede: schede?.schede ?? [],
+          status: project?.project?.status as string | undefined,
+        };
+      } catch {
+        return {
+          narrators: 0,
+          paths: 0,
+          schede: [] as Array<{ status: string }>,
+          status: undefined,
+        };
+      }
+    })(),
   ]);
   let done = 0;
   const hasSources =
@@ -1403,11 +1433,27 @@ export async function computeCompletedSteps(
     !!sources?.planimetria ||
     !!sources?.website ||
     !!sources?.interview;
+  // Step 01 Fonti
   if (hasSources) done++;
-  if ((kb?.facts?.length ?? 0) > 0) done++;
+  // Step 02 Brief
   if (brief) done++;
+  // Step 03 Luogo
   if ((map?.pois?.length ?? 0) > 0) done++;
-  if (drivers) done++;
+  // Step 04 Driver e Personas
+  if (
+    (drivers?.drivers?.length ?? 0) > 0 &&
+    (drivers?.personas?.length ?? 0) > 0
+  )
+    done++;
+  // Step 05 Percorsi e Narratori
+  if (extras.narrators >= 1 && extras.paths >= 1) done++;
+  // Step 06 Schede e Audio
+  const publishedSchede = extras.schede.filter(
+    (s: { status: string }) => s.status === "published",
+  ).length;
+  if (publishedSchede >= 1) done++;
+  // Step 07 Pubblica
+  if (extras.status === "published") done++;
   return done;
 }
 

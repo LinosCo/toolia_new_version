@@ -160,14 +160,14 @@ export default function PoiDetailPage({
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[820px] flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
   if (!poi) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[820px] flex items-center justify-center">
         <p className="text-sm text-muted-foreground">POI non trovato.</p>
       </div>
     );
@@ -176,9 +176,9 @@ export default function PoiDetailPage({
   const familyMode = data.project.familyMode;
 
   return (
-    <div className="min-h-screen bg-paper pb-32">
+    <div className="min-h-[820px] bg-paper pb-32">
       {/* Hero POI */}
-      <section className="relative w-full aspect-[16/10] md:aspect-[16/9] max-h-[75vh] overflow-hidden bg-muted">
+      <section className="relative w-full aspect-[4/5] max-h-[520px] overflow-hidden bg-muted">
         {poi.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -191,7 +191,7 @@ export default function PoiDetailPage({
         )}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60" />
 
-        <div className="absolute top-20 left-6 md:left-12">
+        <div className="absolute top-20 left-5">
           <Link
             href={
               isComposed
@@ -207,7 +207,7 @@ export default function PoiDetailPage({
           </Link>
         </div>
 
-        <div className="absolute bottom-8 left-6 md:left-12 right-6 md:right-12">
+        <div className="absolute bottom-8 left-5 right-5">
           <div className="flex items-center gap-3 flex-wrap mb-3">
             {poi.zone && (
               <span className="text-[10px] uppercase tracking-[0.28em] text-white/80">
@@ -229,7 +229,7 @@ export default function PoiDetailPage({
               </span>
             )}
           </div>
-          <h1 className="font-heading italic text-white text-5xl md:text-7xl leading-[0.96] tracking-tight max-w-4xl">
+          <h1 className="font-heading italic text-white text-[40px] leading-[0.96] tracking-tight max-w-[280px]">
             {poi.name}
           </h1>
         </div>
@@ -300,7 +300,7 @@ export default function PoiDetailPage({
         {/* Scheda */}
         {scheda ? (
           <article className="mt-8">
-            <h2 className="font-heading italic text-3xl md:text-4xl tracking-tight mb-5">
+            <h2 className="font-heading italic text-2xl tracking-tight mb-5">
               {scheda.title}
             </h2>
             <div className="prose prose-stone max-w-none text-[17px] leading-[1.75] text-foreground/90 whitespace-pre-wrap">

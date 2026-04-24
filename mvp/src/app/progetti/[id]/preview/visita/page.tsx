@@ -117,7 +117,7 @@ export default function VisitaPage({
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[820px] flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -139,9 +139,9 @@ export default function VisitaPage({
     : (path?.description ?? "");
 
   return (
-    <div className="min-h-screen bg-paper pb-32">
+    <div className="min-h-[820px] bg-paper pb-32">
       {/* Header */}
-      <section className="px-6 md:px-12 pt-24 pb-10 border-b border-border/60">
+      <section className="px-6 pt-24 pb-10 border-b border-border/60">
         <div className="max-w-4xl mx-auto">
           <Link
             href={`/progetti/${id}/preview`}
@@ -153,7 +153,7 @@ export default function VisitaPage({
           <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
             {isComposed ? "Visita personalizzata" : "Itinerario d'autore"}
           </p>
-          <h1 className="font-heading italic text-5xl md:text-6xl tracking-tight mb-4">
+          <h1 className="font-heading italic text-[38px] tracking-tight mb-4">
             {title}
           </h1>
           {subtitle && (
@@ -182,7 +182,7 @@ export default function VisitaPage({
       </section>
 
       {/* Itinerary list */}
-      <section className="px-6 md:px-12 pt-10">
+      <section className="px-6 pt-10">
         <div className="max-w-4xl mx-auto">
           {itineraryItems.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border/70 p-10 text-center text-sm text-muted-foreground">

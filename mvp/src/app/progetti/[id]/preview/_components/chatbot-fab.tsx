@@ -105,7 +105,7 @@ export function ChatbotFab({ projectId }: { projectId: string }) {
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-40 h-14 w-14 rounded-full bg-foreground text-background shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
+          className="absolute bottom-4 right-4 z-40 h-14 w-14 rounded-full bg-foreground text-background shadow-2xl flex items-center justify-center hover:scale-105 transition-transform"
           aria-label="Apri assistente"
         >
           <MessageCircle className="h-5 w-5" strokeWidth={1.8} />
@@ -114,7 +114,7 @@ export function ChatbotFab({ projectId }: { projectId: string }) {
 
       {/* Panel */}
       {open && (
-        <div className="fixed bottom-6 right-6 z-40 w-[min(92vw,400px)] h-[min(80vh,620px)] rounded-3xl bg-card border border-border/70 shadow-2xl flex flex-col overflow-hidden">
+        <div className="absolute bottom-4 right-4 z-40 w-[min(92vw,400px)] h-[min(80vh,620px)] rounded-3xl bg-card border border-border/70 shadow-2xl flex flex-col overflow-hidden">
           <header className="flex items-center justify-between p-4 border-b border-border/60 bg-foreground text-background">
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-full bg-background/15 flex items-center justify-center">

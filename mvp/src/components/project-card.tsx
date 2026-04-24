@@ -41,7 +41,7 @@ export function ProjectCard({
   index?: number;
   onDelete?: (id: string) => void;
 }) {
-  const totalSteps = 6;
+  const totalSteps = 7;
 
   return (
     <motion.article

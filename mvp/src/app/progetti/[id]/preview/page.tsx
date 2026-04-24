@@ -42,14 +42,14 @@ export default function PreviewHomePage({
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[820px] flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
   }
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[820px] flex items-center justify-center">
         <p className="text-sm text-muted-foreground">
           Impossibile caricare l'anteprima.
         </p>
@@ -65,7 +65,7 @@ export default function PreviewHomePage({
   return (
     <div className="relative">
       {/* HERO — full-bleed cinematic */}
-      <section className="relative min-h-[92vh] w-full overflow-hidden">
+      <section className="relative min-h-[620px] w-full overflow-hidden">
         {project.coverImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -80,7 +80,7 @@ export default function PreviewHomePage({
         <div className="absolute inset-0 bg-gradient-to-b from-black/10 via-black/40 to-black/85" />
         <div className="absolute inset-0 bg-gradient-to-tr from-[oklch(0.2_0.05_40_/_0.5)] via-transparent to-transparent" />
 
-        <div className="relative z-10 min-h-[92vh] flex flex-col justify-end px-6 md:px-12 lg:px-16 pb-12 md:pb-20">
+        <div className="relative z-10 min-h-[620px] flex flex-col justify-end px-6 pb-12 md:pb-20">
           <div className="max-w-4xl">
             {project.familyMode.enabled && (
               <span className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full bg-white/15 backdrop-blur-sm border border-white/20 text-[11px] uppercase tracking-[0.22em] text-white mb-5">
@@ -92,7 +92,7 @@ export default function PreviewHomePage({
               {project.type}
               {project.city ? ` · ${project.city}` : ""}
             </p>
-            <h1 className="font-heading italic text-white text-5xl md:text-7xl lg:text-[5.5rem] leading-[0.95] tracking-tight mb-6 md:mb-8 max-w-3xl">
+            <h1 className="font-heading italic text-white text-[42px] leading-[0.95] tracking-tight mb-6 max-w-xs">
               {project.name}
             </h1>
             {project.brief.tipoEsperienza && (
@@ -164,14 +164,14 @@ export default function PreviewHomePage({
       </section>
 
       {/* ITINERARI TEMATICI */}
-      <section id="itinerari" className="px-6 md:px-12 lg:px-16 py-20">
+      <section id="itinerari" className="px-6 py-20">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-end justify-between gap-6 mb-10">
             <div>
               <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
                 Itinerari d'autore
               </p>
-              <h2 className="font-heading italic text-4xl md:text-5xl tracking-tight">
+              <h2 className="font-heading italic text-3xl tracking-tight">
                 Percorsi pensati
                 <br />
                 da chi conosce il luogo
@@ -184,7 +184,7 @@ export default function PreviewHomePage({
               Nessun itinerario tematico pubblicato.
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
+            <div className="flex flex-col gap-4">
               {paths.map((p, idx) => {
                 const narrator = narrators.find((n) => n.id === p.narratorId);
                 const order = Array.isArray(p.poiOrderJson)
@@ -220,7 +220,7 @@ export default function PreviewHomePage({
                       </div>
 
                       <div className="absolute bottom-5 left-5 right-5 text-white">
-                        <h3 className="font-heading italic text-2xl md:text-3xl leading-tight tracking-tight mb-2">
+                        <h3 className="font-heading italic text-xl leading-tight tracking-tight mb-2">
                           {p.name}
                         </h3>
                         {p.themeFocus && (
@@ -262,14 +262,14 @@ export default function PreviewHomePage({
 
       {/* MAPPA */}
       {pois.some((p) => p.lat && p.lng) && (
-        <section className="px-6 md:px-12 lg:px-16 py-20 border-t border-border/60">
+        <section className="px-6 py-20 border-t border-border/60">
           <div className="max-w-6xl mx-auto">
             <div className="flex items-end justify-between gap-6 mb-8">
               <div>
                 <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
                   La mappa del luogo
                 </p>
-                <h2 className="font-heading italic text-4xl md:text-5xl tracking-tight">
+                <h2 className="font-heading italic text-3xl tracking-tight">
                   Dove siamo
                 </h2>
               </div>
@@ -281,7 +281,7 @@ export default function PreviewHomePage({
 
       {/* FOOTER — voci narranti */}
       {narrators.length > 0 && (
-        <section className="px-6 md:px-12 lg:px-16 py-16 border-t border-border/60 bg-accent/30">
+        <section className="px-6 py-16 border-t border-border/60 bg-accent/30">
           <div className="max-w-6xl mx-auto">
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-6">
               Le voci del luogo

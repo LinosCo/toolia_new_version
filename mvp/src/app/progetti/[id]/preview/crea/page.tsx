@@ -89,7 +89,7 @@ export default function CreaVisitaPage({
 
   if (!data) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[820px] flex items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -101,7 +101,7 @@ export default function CreaVisitaPage({
   const canNext = step === 0 ? selectedDrivers.length > 0 || !hasDrivers : true;
 
   return (
-    <div className="min-h-screen bg-paper pt-24 pb-20 px-6 md:px-12">
+    <div className="min-h-[820px] bg-paper pt-14 pb-20 px-6">
       <div className="max-w-3xl mx-auto">
         <Link
           href={`/progetti/${id}/preview`}
@@ -144,14 +144,14 @@ export default function CreaVisitaPage({
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
               Primo passaggio
             </p>
-            <h1 className="font-heading italic text-4xl md:text-5xl tracking-tight mb-3">
+            <h1 className="font-heading italic text-3xl tracking-tight mb-3">
               Cosa ti interessa di più?
             </h1>
             <p className="text-sm text-muted-foreground mb-8 max-w-xl">
               Scegli uno o più temi. Adatteremo la visita ai tuoi interessi.
             </p>
 
-            <div className="grid md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-3">
               {drivers.map((d) => {
                 const active = selectedDrivers.includes(d.id);
                 return (
@@ -193,10 +193,10 @@ export default function CreaVisitaPage({
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
               Primo passaggio
             </p>
-            <h1 className="font-heading italic text-4xl md:text-5xl tracking-tight mb-3">
+            <h1 className="font-heading italic text-3xl tracking-tight mb-3">
               Come ti vuoi sentire?
             </h1>
-            <div className="grid md:grid-cols-2 gap-3 mt-8">
+            <div className="flex flex-col gap-3 mt-8">
               {personas.map((p) => {
                 const active = selectedPersonaId === p.id;
                 return (
@@ -230,14 +230,14 @@ export default function CreaVisitaPage({
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
               Secondo passaggio
             </p>
-            <h1 className="font-heading italic text-4xl md:text-5xl tracking-tight mb-3">
+            <h1 className="font-heading italic text-3xl tracking-tight mb-3">
               Quanto tempo hai?
             </h1>
             <p className="text-sm text-muted-foreground mb-8 max-w-xl">
               Comporremo un percorso che sta nel tempo che hai a disposizione.
             </p>
 
-            <div className="grid md:grid-cols-2 gap-3">
+            <div className="flex flex-col gap-3">
               {DURATIONS.map((d) => {
                 const active = duration === d.value;
                 return (
@@ -281,7 +281,7 @@ export default function CreaVisitaPage({
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
               Ultimo passaggio
             </p>
-            <h1 className="font-heading italic text-4xl md:text-5xl tracking-tight mb-3">
+            <h1 className="font-heading italic text-3xl tracking-tight mb-3">
               Come ti racconto il luogo?
             </h1>
             <p className="text-sm text-muted-foreground mb-8 max-w-xl">
@@ -289,7 +289,7 @@ export default function CreaVisitaPage({
             </p>
 
             {hasPersonas ? (
-              <div className="grid md:grid-cols-2 gap-3">
+              <div className="flex flex-col gap-3">
                 <button
                   onClick={() => setSelectedPersonaId(null)}
                   className={`text-left p-5 rounded-2xl border transition-all ${
