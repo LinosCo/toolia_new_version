@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, Send, Sparkles, X } from "lucide-react";
-import type { VisitorData } from "../visitor-types";
+import type { VisitorData } from "@/lib/visitor-types";
 
 type Message =
   | { role: "assistant"; text: string; source?: string }

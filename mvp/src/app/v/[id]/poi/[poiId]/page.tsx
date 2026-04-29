@@ -3,17 +3,13 @@
 import { use } from "react";
 import { VisitorPoi } from "@/components/visitor/visitor-poi";
 
-export default function PreviewPoiPage({
+export default function PublicVisitorPoi({
   params,
 }: {
   params: Promise<{ id: string; poiId: string }>;
 }) {
   const { id, poiId } = use(params);
   return (
-    <VisitorPoi
-      projectId={id}
-      poiId={poiId}
-      basePath={`/progetti/${id}/preview`}
-    />
+    <VisitorPoi projectId={id} poiId={poiId} basePath={`/v/${id}`} />
   );
 }

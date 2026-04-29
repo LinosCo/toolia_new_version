@@ -3,7 +3,7 @@
 import { use } from "react";
 import Link from "next/link";
 import { ArrowLeft, Smartphone } from "lucide-react";
-import { ChatbotFab } from "./_components/chatbot-fab";
+import { ChatbotFab } from "@/components/visitor/chatbot-fab";
 
 export default function PreviewLayout({
   children,

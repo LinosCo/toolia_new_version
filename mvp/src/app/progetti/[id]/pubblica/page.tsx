@@ -6,9 +6,13 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
+  Check,
   Circle,
+  Copy,
+  ExternalLink,
   Eye,
   Loader2,
+  Smartphone,
   Sparkles,
   XCircle,
 } from "lucide-react";
@@ -263,12 +267,13 @@ export default function PubblicaPage({
               className="group inline-flex items-center gap-2 h-11 px-5 rounded-full bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors"
             >
               <Eye className="h-4 w-4" strokeWidth={1.8} />
-              Apri anteprima app visitatore
+              Anteprima desktop
               <ArrowRight
                 className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
                 strokeWidth={1.8}
               />
             </a>
+            <PublicVisitorLink projectId={id} />
             {!isPublished && (
               <button
                 onClick={publish}
@@ -594,6 +599,61 @@ function ChecklistCard({
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+function PublicVisitorLink({ projectId }: { projectId: string }) {
+  const [copied, setCopied] = useState(false);
+  const [origin, setOrigin] = useState("");
+  const path = `/v/${projectId}`;
+  const fullUrl = origin ? `${origin}${path}` : path;
+
+  useEffect(() => {
+    if (typeof window !== "undefined") setOrigin(window.location.origin);
+  }, []);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(fullUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div className="inline-flex items-center gap-1 h-11 pl-4 pr-1 rounded-full bg-brand/10 text-brand border border-brand/30">
+      <Smartphone className="h-4 w-4 shrink-0" strokeWidth={1.8} />
+      <span className="text-xs font-medium hidden sm:inline mr-2">
+        Link pubblico mobile
+      </span>
+      <button
+        onClick={copy}
+        className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-card text-foreground text-xs font-medium hover:bg-background transition-colors"
+      >
+        {copied ? (
+          <>
+            <Check className="h-3.5 w-3.5 text-emerald-600" strokeWidth={2} />
+            Copiato
+          </>
+        ) : (
+          <>
+            <Copy className="h-3.5 w-3.5" strokeWidth={1.8} />
+            Copia
+          </>
+        )}
+      </button>
+      <a
+        href={path}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 h-9 px-3 rounded-full bg-foreground text-background text-xs font-medium hover:bg-foreground/90 transition-colors"
+      >
+        <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.8} />
+        Apri
+      </a>
     </div>
   );
 }

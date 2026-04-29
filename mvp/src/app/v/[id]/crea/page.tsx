@@ -3,11 +3,11 @@
 import { use } from "react";
 import { VisitorCrea } from "@/components/visitor/visitor-crea";
 
-export default function PreviewCreaPage({
+export default function PublicVisitorCrea({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  return <VisitorCrea projectId={id} basePath={`/progetti/${id}/preview`} />;
+  return <VisitorCrea projectId={id} basePath={`/v/${id}`} />;
 }

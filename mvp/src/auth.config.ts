@@ -1,6 +1,6 @@
 import type { NextAuthConfig } from "next-auth";
 
-const PUBLIC_PATHS = ["/auth/signin", "/auth/verify", "/auth/error"];
+const PUBLIC_PATHS = ["/auth/signin", "/auth/verify", "/auth/error", "/v/"];
 
 // Config edge-safe: no adapter, no Prisma.
 // Usata dal middleware per decidere allow/redirect.
