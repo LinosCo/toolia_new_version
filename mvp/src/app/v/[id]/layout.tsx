@@ -57,8 +57,8 @@ export default function PublicVisitorLayout({
           {/* Dynamic Island — solo desktop, sopra al content */}
           <div className="hidden md:block absolute top-2.5 left-1/2 -translate-x-1/2 w-[120px] h-[34px] bg-black rounded-full z-50 pointer-events-none shadow-[0_2px_8px_rgba(0,0,0,0.3)]" />
 
-          {/* Status bar fake (9:41 + icone iOS) — solo desktop, icone bianche con shadow per leggibilità su qualsiasi sfondo */}
-          <div className="hidden md:flex absolute top-0 left-0 right-0 h-[44px] items-center justify-between px-8 text-[13px] font-semibold text-white z-40 pointer-events-none [text-shadow:_0_1px_2px_rgba(0,0,0,0.45)] [&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
+          {/* Status bar fake (9:41 + icone iOS) — solo desktop, icone bianche con shadow per leggibilità su qualsiasi sfondo. Padding generoso per non finire dietro al border-radius del frame. */}
+          <div className="hidden md:flex absolute top-0 left-0 right-0 h-[44px] items-center justify-between px-12 text-[13px] font-semibold text-white z-40 pointer-events-none [text-shadow:_0_1px_2px_rgba(0,0,0,0.45)] [&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
             <span className="tabular-nums">9:41</span>
             <span className="flex items-center gap-1.5">
               <StatusIcons />
