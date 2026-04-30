@@ -70,13 +70,13 @@ export function VisitorHome({
 
       {/* Foreground */}
       <div className="relative z-10 flex-1 flex flex-col">
-        {/* Logo / brand top */}
-        <header className="pt-12 px-6 text-center">
-          <p className="text-[10px] uppercase tracking-[0.32em] text-white/70 mb-2">
+        {/* Logo / brand top — pt generoso per restare sotto status bar + dynamic island */}
+        <header className="pt-24 md:pt-20 px-6 text-center">
+          <p className="text-[10px] uppercase tracking-[0.32em] text-white/75 mb-3">
             {project.type ?? "Visita"}
             {project.city ? ` · ${project.city}` : ""}
           </p>
-          <h1 className="font-heading italic text-white text-[44px] leading-[0.95] tracking-tight">
+          <h1 className="font-heading italic text-white text-[44px] leading-[0.95] tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.4)]">
             {project.name}
           </h1>
         </header>
@@ -84,7 +84,7 @@ export function VisitorHome({
         {/* Welcome text centered */}
         <div className="flex-1 flex items-center justify-center px-8">
           <p className="text-white/90 text-[16px] leading-relaxed text-center max-w-xs">
-            Benvenuti. Vi accompagniamo in un&apos;esperienza pensata per voi.
+            Benvenuto. Ti accompagniamo in un&apos;esperienza pensata per te.
           </p>
         </div>
 

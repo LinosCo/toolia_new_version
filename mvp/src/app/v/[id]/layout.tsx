@@ -41,32 +41,37 @@ export default function PublicVisitorLayout({
             Su mobile è la pagina full-screen.
             Su desktop diventa 378×820 rounded, ritagliato dal bezel. */}
         <main className="relative bg-paper mx-auto w-full max-w-[480px] min-h-screen md:max-w-none md:w-[378px] md:h-[820px] md:min-h-0 md:rounded-[46px] md:overflow-hidden">
-          {/* Dynamic Island — solo desktop, sopra al content */}
-          <div className="hidden md:block absolute top-2.5 left-1/2 -translate-x-1/2 w-[120px] h-[34px] bg-black rounded-full z-50 pointer-events-none shadow-inner" />
+          {/* Content scroll wrapper.
+              Su mobile: <div> trasparente, content scrolla con la pagina.
+              Su desktop: absolute inset-0 con scroll interno (niente pt-[44px]
+              così foto hero immersive si estendono sotto la status bar).
+              [&>*]:min-h-full forza il primo figlio a riempire il content area
+              senza usare 100vh (che sforerebbe l'altezza del frame). */}
+          <div className="md:absolute md:inset-0 md:overflow-y-auto md:overscroll-contain md:[&>*]:min-h-full pb-[env(safe-area-inset-bottom)]">
+            {children}
+          </div>
 
-          {/* Status bar fake (9:41 + icone iOS) — solo desktop */}
-          <div className="hidden md:flex absolute top-0 left-0 right-0 h-[44px] items-center justify-between px-8 text-[13px] font-semibold text-foreground z-40 pointer-events-none">
+          {/* Gradient overlay per leggibilità status bar — solo desktop */}
+          <div className="hidden md:block absolute top-0 left-0 right-0 h-[68px] bg-gradient-to-b from-black/35 via-black/15 to-transparent z-40 pointer-events-none" />
+
+          {/* Dynamic Island — solo desktop, sopra al content */}
+          <div className="hidden md:block absolute top-2.5 left-1/2 -translate-x-1/2 w-[120px] h-[34px] bg-black rounded-full z-50 pointer-events-none shadow-[0_2px_8px_rgba(0,0,0,0.3)]" />
+
+          {/* Status bar fake (9:41 + icone iOS) — solo desktop, icone bianche con shadow per leggibilità su qualsiasi sfondo */}
+          <div className="hidden md:flex absolute top-0 left-0 right-0 h-[44px] items-center justify-between px-8 text-[13px] font-semibold text-white z-40 pointer-events-none [text-shadow:_0_1px_2px_rgba(0,0,0,0.45)] [&_svg]:drop-shadow-[0_1px_2px_rgba(0,0,0,0.45)]">
             <span className="tabular-nums">9:41</span>
             <span className="flex items-center gap-1.5">
               <StatusIcons />
             </span>
           </div>
 
-          {/* Content scroll wrapper.
-              Su mobile: <div> trasparente, content scrolla con la pagina.
-              Su desktop: absolute inset-0 con scroll interno + pt-[44px] per status bar.
-              [&>*]:min-h-full forza il primo figlio a riempire il content area
-              senza usare 100vh (che sforerebbe l'altezza del frame). */}
-          <div className="md:absolute md:inset-0 md:overflow-y-auto md:overscroll-contain md:pt-[44px] md:[&>*]:min-h-full pb-[env(safe-area-inset-bottom)]">
-            {children}
-          </div>
-
           {/* Hamburger menu — ancorato al main (= bordo schermo). Sempre fisso. */}
           {!isWelcome && <VisitorMenu basePath={basePath} />}
 
-          {/* FAB scanner + chatbot — ancorati al main, fissi al bordo del frame */}
+          {/* FAB scanner + chatbot — ancorati al main, fissi al bordo del frame.
+              Chatbot nascosto sulla welcome (entry pulita, no distrazioni). */}
           {!isWelcome && <ScannerFab basePath={basePath} />}
-          <ChatbotFab projectId={id} />
+          {!isWelcome && <ChatbotFab projectId={id} />}
         </main>
       </div>
     </div>
