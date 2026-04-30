@@ -21,14 +21,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  loadBrief,
-  loadDriversPersonas,
-  loadMap,
   saveProgress,
   type ProjectBrief,
   type ProjectDriversPersonas,
   type ProjectMap,
 } from "@/lib/project-store";
+import {
+  useProjectMeta,
+  useBrief,
+  useDrivers,
+  useMap,
+  useNarrators,
+  usePaths,
+  useSyncedState,
+  invalidateProjectData,
+} from "@/lib/hooks/use-project-data";
 import { loadApiKeys } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
 
@@ -145,18 +152,9 @@ export default function PercorsiStepPage({
 }) {
   const { id: projectId } = use(params);
 
-  const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [narrators, setNarrators] = useState<Narrator[]>([]);
-  const [brief, setBrief] = useState<ProjectBrief | undefined>(undefined);
-  const [drivers, setDrivers] = useState<ProjectDriversPersonas | undefined>(
-    undefined,
-  );
-  const [map, setMap] = useState<ProjectMap | undefined>(undefined);
-  const [loaded, setLoaded] = useState(false);
   const [proposing, setProposing] = useState(false);
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [voices, setVoices] = useState<ElevenLabsVoice[]>([]);
-  const [paths, setPaths] = useState<PathItem[]>([]);
   const [proposingPaths, setProposingPaths] = useState(false);
   const [pathsError, setPathsError] = useState<string | null>(null);
   const [adaptation, setAdaptation] = useState<AdaptationRules>(
@@ -173,57 +171,55 @@ export default function PercorsiStepPage({
       : null;
   const hasLlmKey = activeProvider !== null;
 
+  const { data: projectMetaData } = useProjectMeta(projectId);
+  const { data: briefData } = useBrief(projectId);
+  const { data: driversData } = useDrivers(projectId);
+  const { data: mapData } = useMap(projectId);
+  const { data: narratorsData } = useNarrators<Narrator>(projectId);
+  const { data: pathsData, isLoading: pathsLoading } =
+    usePaths<PathItem>(projectId);
+
+  const projectMeta = projectMetaData?.project;
+  const project: ProjectInfo | null = projectMeta
+    ? {
+        id: projectMeta.id,
+        name: projectMeta.name,
+        type: projectMeta.type,
+        city: projectMeta.city,
+      }
+    : null;
+
+  const [brief] = useSyncedState<ProjectBrief | undefined>(briefData);
+  const [drivers] = useSyncedState<ProjectDriversPersonas | undefined>(
+    driversData,
+  );
+  const [map] = useSyncedState<ProjectMap | undefined>(mapData);
+  const [narrators, setNarrators] = useSyncedState<Narrator[]>(
+    narratorsData?.narrators ?? [],
+  );
+  const [paths, setPaths] = useSyncedState<PathItem[]>(
+    pathsData?.paths ?? [],
+  );
+  const loaded = !pathsLoading;
+
   const reloadNarrators = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/narrators`, {
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const json = await res.json();
-      setNarrators(json.narrators ?? []);
-    }
+    invalidateProjectData(projectId, "narrators");
   }, [projectId]);
 
   const reloadPaths = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}/paths`, {
-      cache: "no-store",
-    });
-    if (res.ok) {
-      const json = await res.json();
-      setPaths(json.paths ?? []);
-    }
+    invalidateProjectData(projectId, "paths");
   }, [projectId]);
 
   useEffect(() => {
     saveProgress(projectId, { currentStep: "luogo" });
+  }, [projectId]);
+
+  // Carica regole adattamento + voci ElevenLabs (one-shot)
+  useEffect(() => {
     let alive = true;
     (async () => {
-      const [p, b, d, m] = await Promise.all([
-        fetch(`/api/projects/${projectId}`, { cache: "no-store" }).then((r) =>
-          r.ok ? r.json() : null,
-        ),
-        loadBrief(projectId),
-        loadDriversPersonas(projectId),
-        loadMap(projectId),
-      ]);
-      if (!alive) return;
-      if (p?.project) {
-        setProject({
-          id: p.project.id,
-          name: p.project.name,
-          type: p.project.type,
-          city: p.project.city,
-        });
-      }
-      setBrief(b);
-      setDrivers(d);
-      setMap(m);
-      await reloadNarrators();
-      await reloadPaths();
-      // Carica regole adattamento
       try {
-        const ar = await fetch(`/api/projects/${projectId}/adaptation-rules`, {
-          cache: "no-store",
-        });
+        const ar = await fetch(`/api/projects/${projectId}/adaptation-rules`);
         if (ar.ok) {
           const aj = await ar.json();
           if (alive && aj?.rules) {
@@ -233,11 +229,8 @@ export default function PercorsiStepPage({
       } catch {
         // silent
       }
-      // Carica lista voci ElevenLabs
       try {
-        const vr = await fetch("/api/tts/elevenlabs/voices", {
-          cache: "no-store",
-        });
+        const vr = await fetch("/api/tts/elevenlabs/voices");
         if (vr.ok) {
           const vj = await vr.json();
           if (alive) setVoices(vj.voices ?? []);
@@ -245,12 +238,11 @@ export default function PercorsiStepPage({
       } catch {
         // silent
       }
-      setLoaded(true);
     })();
     return () => {
       alive = false;
     };
-  }, [projectId, reloadNarrators, reloadPaths]);
+  }, [projectId]);
 
   // Auto-propose al primo ingresso se vuoto + chiave LLM presente + driver già pronti
   useEffect(() => {

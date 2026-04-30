@@ -20,16 +20,23 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  loadBrief,
-  loadKB,
-  loadMap,
-  loadDriversPersonas,
   saveProgress,
   type ProjectBrief,
   type ProjectKB,
   type ProjectMap,
   type ProjectDriversPersonas,
 } from "@/lib/project-store";
+import {
+  useProjectMeta,
+  useBrief,
+  useKB,
+  useMap,
+  useDrivers,
+  useNarrators,
+  useSchede,
+  useSyncedState,
+  invalidateProjectData,
+} from "@/lib/hooks/use-project-data";
 import { loadApiKeys } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
 
@@ -118,16 +125,6 @@ export default function SchedeStepPage({
 }) {
   const { id: projectId } = use(params);
 
-  const [project, setProject] = useState<ProjectInfo | null>(null);
-  const [brief, setBrief] = useState<ProjectBrief | undefined>(undefined);
-  const [kb, setKb] = useState<ProjectKB>({ facts: [] });
-  const [map, setMap] = useState<ProjectMap | undefined>(undefined);
-  const [drivers, setDrivers] = useState<ProjectDriversPersonas | undefined>(
-    undefined,
-  );
-  const [narrators, setNarrators] = useState<Narrator[]>([]);
-  const [schede, setSchede] = useState<Scheda[]>([]);
-  const [loaded, setLoaded] = useState(false);
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [selectedPoi, setSelectedPoi] = useState<string | "all">("all");
   const [bulkRunning, setBulkRunning] = useState(false);
@@ -141,52 +138,49 @@ export default function SchedeStepPage({
       : null;
   const hasLlmKey = activeProvider !== null;
 
+  const { data: projectMetaData } = useProjectMeta(projectId);
+  const { data: briefData } = useBrief(projectId);
+  const { data: kbData } = useKB(projectId);
+  const { data: mapData } = useMap(projectId);
+  const { data: driversData } = useDrivers(projectId);
+  const { data: narratorsData } = useNarrators<Narrator>(projectId);
+  const { data: schedeData, isLoading: schedeLoading } = useSchede<Scheda>(
+    projectId,
+  );
+
+  const projectMeta = projectMetaData?.project;
+  const project: ProjectInfo | null = projectMeta
+    ? {
+        id: projectMeta.id,
+        name: projectMeta.name,
+        type: projectMeta.type,
+        city: projectMeta.city,
+      }
+    : null;
+
+  const [brief] = useSyncedState<ProjectBrief | undefined>(briefData);
+  const [kb] = useSyncedState<ProjectKB>(kbData ?? { facts: [] });
+  const [map] = useSyncedState<ProjectMap | undefined>(mapData);
+  const [drivers] = useSyncedState<ProjectDriversPersonas | undefined>(
+    driversData,
+  );
+  const [narrators] = useSyncedState<Narrator[]>(
+    narratorsData?.narrators ?? [],
+  );
+  const [schede, setSchede] = useSyncedState<Scheda[]>(
+    schedeData?.schede ?? [],
+  );
+  const loaded = !schedeLoading;
+
   const reloadAll = useCallback(async () => {
-    const [pr, ns, sc] = await Promise.all([
-      fetch(`/api/projects/${projectId}`, { cache: "no-store" }).then((r) =>
-        r.ok ? r.json() : null,
-      ),
-      fetch(`/api/projects/${projectId}/narrators`, { cache: "no-store" }).then(
-        (r) => (r.ok ? r.json() : null),
-      ),
-      fetch(`/api/projects/${projectId}/schede`, { cache: "no-store" }).then(
-        (r) => (r.ok ? r.json() : null),
-      ),
-    ]);
-    if (pr?.project) {
-      setProject({
-        id: pr.project.id,
-        name: pr.project.name,
-        type: pr.project.type,
-        city: pr.project.city,
-      });
-    }
-    setNarrators(ns?.narrators ?? []);
-    setSchede(sc?.schede ?? []);
+    invalidateProjectData(projectId, "project");
+    invalidateProjectData(projectId, "narrators");
+    invalidateProjectData(projectId, "schede");
   }, [projectId]);
 
   useEffect(() => {
     saveProgress(projectId, { currentStep: "luogo" });
-    let alive = true;
-    (async () => {
-      const [b, k, m, d] = await Promise.all([
-        loadBrief(projectId),
-        loadKB(projectId),
-        loadMap(projectId),
-        loadDriversPersonas(projectId),
-      ]);
-      if (!alive) return;
-      setBrief(b);
-      setKb(k);
-      setMap(m);
-      setDrivers(d);
-      await reloadAll();
-      setLoaded(true);
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [projectId, reloadAll]);
+  }, [projectId]);
 
   const stats = useMemo(() => {
     const by: Record<SchedaStatus, number> = {

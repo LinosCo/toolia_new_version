@@ -1,23 +1,26 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ProjectStepper } from "@/components/project-stepper";
 import {
-  loadSources,
-  loadBrief,
-  loadMap,
-  loadDriversPersonas,
   sourcesCompletion,
-  StoredProject,
-  ProjectSources,
-  ProjectBrief,
-  ProjectMap,
-  ProjectDriversPersonas,
   cacheProjectLocally,
+  type StoredProject,
 } from "@/lib/project-store";
+import {
+  useProjectMeta,
+  useSources,
+  useBrief,
+  useMap,
+  useDrivers,
+  useNarrators,
+  usePaths,
+  useSchede,
+  invalidateProjectData,
+} from "@/lib/hooks/use-project-data";
 
 export default function ProjectLayout({
   children,
@@ -27,119 +30,53 @@ export default function ProjectLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [project, setProject] = useState<StoredProject | null | undefined>(
-    undefined,
-  );
-  const [sources, setSources] = useState<ProjectSources>({
-    images: [],
-    documents: [],
-  });
-  const [brief, setBrief] = useState<ProjectBrief | undefined>(undefined);
-  const [map, setMap] = useState<ProjectMap | undefined>(undefined);
-  const [drivers, setDrivers] = useState<ProjectDriversPersonas | undefined>(
-    undefined,
-  );
-  const [narratorsCount, setNarratorsCount] = useState(0);
-  const [pathsCount, setPathsCount] = useState(0);
-  const [schedeCount, setSchedeCount] = useState(0);
-  const [publishedSchedeCount, setPublishedSchedeCount] = useState(0);
-  const [projectPublished, setProjectPublished] = useState(false);
+
+  const { data: metaData, isLoading: metaLoading, error: metaError } =
+    useProjectMeta(id);
+  const { data: sources } = useSources(id);
+  const { data: brief } = useBrief(id);
+  const { data: map } = useMap(id);
+  const { data: drivers } = useDrivers(id);
+  const { data: narratorsData } = useNarrators(id);
+  const { data: pathsData } = usePaths(id);
+  const { data: schedeData } = useSchede(id);
 
   useEffect(() => {
-    let alive = true;
-    const refresh = async () => {
-      let p: StoredProject | null = null;
-      try {
-        const res = await fetch(`/api/projects/${id}`, { cache: "no-store" });
-        if (res.ok) {
-          const json = (await res.json()) as {
-            project: {
-              id: string;
-              name: string;
-              type: string | null;
-              coverImage: string | null;
-              address: string | null;
-              mapsLink: string | null;
-              city: string | null;
-              createdAt: string;
-              status?: string;
-            };
-          };
-          const api = json.project;
-          p = {
-            id: api.id,
-            name: api.name,
-            type: (api.type ?? null) as StoredProject["type"],
-            coverImage: api.coverImage ?? undefined,
-            address: api.address ?? undefined,
-            mapsLink: api.mapsLink ?? undefined,
-            city: api.city ?? undefined,
-            createdAt: api.createdAt,
-          };
-          cacheProjectLocally(p);
-          if (alive) setProjectPublished(api.status === "published");
-        }
-      } catch {
-        // fallthrough — p rimane null
-      }
-      const [s, b, m, d] = await Promise.all([
-        loadSources(id),
-        loadBrief(id),
-        loadMap(id),
-        loadDriversPersonas(id),
-      ]);
-      if (!alive) return;
-      setProject(p);
-      setSources(s);
-      setBrief(b);
-      setMap(m);
-      setDrivers(d);
-
-      // Narrators + Paths + Schede counts
-      try {
-        const [nr, pa, sc] = await Promise.all([
-          fetch(`/api/projects/${id}/narrators`, { cache: "no-store" }).then(
-            (r) => (r.ok ? r.json() : null),
-          ),
-          fetch(`/api/projects/${id}/paths`, { cache: "no-store" }).then((r) =>
-            r.ok ? r.json() : null,
-          ),
-          fetch(`/api/projects/${id}/schede`, { cache: "no-store" }).then(
-            (r) => (r.ok ? r.json() : null),
-          ),
-        ]);
-        if (!alive) return;
-        setNarratorsCount(nr?.narrators?.length ?? 0);
-        setPathsCount(pa?.paths?.length ?? 0);
-        const schedeList = sc?.schede ?? [];
-        setSchedeCount(schedeList.length);
-        setPublishedSchedeCount(
-          schedeList.filter((x: { status: string }) => x.status === "published")
-            .length,
-        );
-      } catch {
-        // silent
-      }
+    if (!metaData?.project) return;
+    const api = metaData.project;
+    const p: StoredProject = {
+      id: api.id,
+      name: api.name,
+      type: (api.type ?? null) as StoredProject["type"],
+      coverImage: api.coverImage ?? undefined,
+      address: api.address ?? undefined,
+      mapsLink: api.mapsLink ?? undefined,
+      city: api.city ?? undefined,
+      createdAt: api.createdAt,
     };
-    refresh();
+    cacheProjectLocally(p);
+  }, [metaData]);
 
-    const onStorage = () => {
-      refresh();
-    };
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("toolia:sources-updated", onStorage);
-    window.addEventListener("toolia:brief-updated", onStorage);
-    window.addEventListener("toolia:map-updated", onStorage);
-    window.addEventListener("toolia:drivers-updated", onStorage);
+  // Invalida cache su eventi locali emessi dalle pagine step
+  useEffect(() => {
+    const onSources = () => invalidateProjectData(id, "sources");
+    const onBrief = () => invalidateProjectData(id, "brief");
+    const onMap = () => invalidateProjectData(id, "map");
+    const onDrivers = () => invalidateProjectData(id, "drivers");
+    window.addEventListener("toolia:sources-updated", onSources);
+    window.addEventListener("toolia:brief-updated", onBrief);
+    window.addEventListener("toolia:map-updated", onMap);
+    window.addEventListener("toolia:drivers-updated", onDrivers);
     return () => {
-      alive = false;
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("toolia:sources-updated", onStorage);
-      window.removeEventListener("toolia:brief-updated", onStorage);
-      window.removeEventListener("toolia:map-updated", onStorage);
-      window.removeEventListener("toolia:drivers-updated", onStorage);
+      window.removeEventListener("toolia:sources-updated", onSources);
+      window.removeEventListener("toolia:brief-updated", onBrief);
+      window.removeEventListener("toolia:map-updated", onMap);
+      window.removeEventListener("toolia:drivers-updated", onDrivers);
     };
   }, [id]);
+
+  const project = metaData?.project;
+  const projectPublished = project?.status === "published";
 
   const briefComplete =
     !!brief &&
@@ -148,8 +85,17 @@ export default function ProjectLayout({
     !!brief.target.trim() &&
     brief.mustTell.some((s) => s.trim().length > 0);
 
+  const narratorsCount = narratorsData?.narrators?.length ?? 0;
+  const pathsCount = pathsData?.paths?.length ?? 0;
+  const schedeList = (schedeData?.schede ?? []) as Array<{ status?: string }>;
+  const schedeCount = schedeList.length;
+  const publishedSchedeCount = schedeList.filter(
+    (x) => x.status === "published",
+  ).length;
+
   const completion = {
-    fonti: sourcesCompletion(sources) >= 2,
+    fonti:
+      sourcesCompletion(sources ?? { images: [], documents: [] }) >= 2,
     brief: briefComplete,
     luogo: (map?.pois.length ?? 0) >= 1,
     driver:
@@ -160,11 +106,11 @@ export default function ProjectLayout({
     pubblica: projectPublished,
   };
 
-  if (project === undefined) {
+  if (metaLoading && !metaData) {
     return <div className="min-h-screen bg-paper" />;
   }
 
-  if (project === null) {
+  if (metaError || !project) {
     return (
       <div className="min-h-screen bg-paper flex flex-col items-center justify-center gap-4 px-6">
         <p className="font-heading text-3xl italic">Progetto non trovato</p>

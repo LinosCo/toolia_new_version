@@ -23,10 +23,6 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import {
   loadProject,
-  loadSources,
-  loadBrief,
-  loadKB,
-  loadMap,
   saveMap,
   saveProgress,
   emptyMap,
@@ -43,6 +39,14 @@ import {
   type ProjectKB,
   type StoredProject,
 } from "@/lib/project-store";
+import {
+  useSources,
+  useBrief,
+  useKB,
+  useMap,
+  useSyncedState,
+  invalidateProjectData,
+} from "@/lib/hooks/use-project-data";
 import { loadApiKeys } from "@/lib/api-keys";
 import {
   loadGoogleMaps,
@@ -100,15 +104,9 @@ export default function LuogoStepPage({
 }) {
   const { id: projectId } = use(params);
 
-  const [project, setProject] = useState<StoredProject | null>(null);
-  const [sources, setSources] = useState<ProjectSources>({
-    images: [],
-    documents: [],
-  });
-  const [brief, setBrief] = useState<ProjectBrief | undefined>(undefined);
-  const [kb, setKb] = useState<ProjectKB>({ facts: [] });
-  const [map, setMapState] = useState<ProjectMap>(emptyMap());
-  const [loaded, setLoaded] = useState(false);
+  const [project] = useState<StoredProject | null>(
+    () => loadProject(projectId) ?? null,
+  );
   const [saved, setSaved] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -136,30 +134,24 @@ export default function LuogoStepPage({
       : null;
   const hasLlmKey = activeProvider !== null;
 
+  const { data: sourcesData } = useSources(projectId);
+  const { data: briefData } = useBrief(projectId);
+  const { data: kbData } = useKB(projectId);
+  const { data: mapData, isLoading: mapLoading } = useMap(projectId);
+
+  const [sources] = useSyncedState<ProjectSources>(
+    sourcesData ?? { images: [], documents: [] },
+  );
+  const [brief] = useSyncedState<ProjectBrief | undefined>(briefData);
+  const [kb] = useSyncedState<ProjectKB>(kbData ?? { facts: [] });
+  const [map, setMapState] = useSyncedState<ProjectMap>(
+    mapData ?? { ...emptyMap(), spatialMode: inferSpatialMode(project?.type) },
+  );
+
+  const loaded = !mapLoading;
+
   useEffect(() => {
     saveProgress(projectId, { currentStep: "luogo" });
-    let alive = true;
-    (async () => {
-      const p = loadProject(projectId) ?? null;
-      const [s, b, k, m] = await Promise.all([
-        loadSources(projectId),
-        loadBrief(projectId),
-        loadKB(projectId),
-        loadMap(projectId),
-      ]);
-      if (!alive) return;
-      setProject(p);
-      setSources(s);
-      setBrief(b);
-      setKb(k);
-      setMapState(
-        m ?? { ...emptyMap(), spatialMode: inferSpatialMode(p?.type) },
-      );
-      setLoaded(true);
-    })();
-    return () => {
-      alive = false;
-    };
   }, [projectId]);
 
   const persist = (next: ProjectMap) => {
@@ -168,6 +160,7 @@ export default function LuogoStepPage({
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       setSaved(true);
       savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
+      invalidateProjectData(projectId, "map");
       window.dispatchEvent(new Event("toolia:map-updated"));
     });
   };

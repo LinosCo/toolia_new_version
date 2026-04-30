@@ -23,10 +23,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  loadBrief,
   saveBrief,
   emptyBrief,
-  loadKB,
   loadProject,
   saveProgress,
   type ProjectBrief,
@@ -37,6 +35,12 @@ import {
   type KBFact,
   type ProjectKB,
 } from "@/lib/project-store";
+import {
+  useBrief,
+  useKB,
+  useSyncedState,
+  invalidateProjectData,
+} from "@/lib/hooks/use-project-data";
 import { loadApiKeys } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
 
@@ -119,14 +123,20 @@ export default function BriefStepPage({
 }) {
   const { id: projectId } = use(params);
 
-  const [brief, setBriefState] = useState<ProjectBrief>(emptyBrief());
-  const [kb, setKb] = useState<ProjectKB>({ facts: [] });
-  const [loaded, setLoaded] = useState(false);
+  const { data: briefData, isLoading: briefLoading } = useBrief(projectId);
+  const { data: kbData } = useKB(projectId);
+
+  const [brief, setBriefState] = useSyncedState<ProjectBrief>(
+    briefData ?? emptyBrief(),
+  );
+  const [kb] = useSyncedState<ProjectKB>(kbData ?? { facts: [] });
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoGenAttemptedRef = useRef(false);
+
+  const loaded = !briefLoading;
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
@@ -138,26 +148,13 @@ export default function BriefStepPage({
 
   useEffect(() => {
     saveProgress(projectId, { currentStep: "brief" });
-    let alive = true;
-    const refresh = async (skipBrief = false) => {
-      const ops: Promise<unknown>[] = [loadKB(projectId)];
-      if (!skipBrief) ops.unshift(loadBrief(projectId));
-      const results = await Promise.all(ops);
-      if (!alive) return;
-      if (!skipBrief) {
-        setBriefState((results[0] as ProjectBrief | undefined) ?? emptyBrief());
-        setKb(results[1] as ProjectKB);
-      } else {
-        setKb(results[0] as ProjectKB);
-      }
-      setLoaded(true);
-    };
-    refresh();
-    // Ri-sync KB quando Fonti cambia (utente approva altri fatti)
-    const onSourcesChanged = () => refresh(true);
+  }, [projectId]);
+
+  // Ri-sync KB quando Fonti cambia (utente approva altri fatti)
+  useEffect(() => {
+    const onSourcesChanged = () => invalidateProjectData(projectId, "kb");
     window.addEventListener("toolia:sources-updated", onSourcesChanged);
     return () => {
-      alive = false;
       window.removeEventListener("toolia:sources-updated", onSourcesChanged);
     };
   }, [projectId]);
@@ -168,6 +165,7 @@ export default function BriefStepPage({
       if (savedTimerRef.current) clearTimeout(savedTimerRef.current);
       setSaved(true);
       savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
+      invalidateProjectData(projectId, "brief");
       window.dispatchEvent(new Event("toolia:brief-updated"));
     });
   };

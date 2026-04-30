@@ -16,7 +16,7 @@ import {
   Sparkles,
   XCircle,
 } from "lucide-react";
-import { loadMap } from "@/lib/project-store";
+import { useMap } from "@/lib/hooks/use-project-data";
 
 type Blocker = {
   id: string;
@@ -138,23 +138,22 @@ export default function PubblicaPage({
     }
   };
 
+  const { data: localMap } = useMap(id);
+
   // Auto-sync: al primo caricamento, se trova foto nel browser ancora non
   // arrivate al DB (per via del body limit del PUT bulk), le manda via PATCH
   // singolo POI. Senza UI, silenzioso.
   useEffect(() => {
+    if (!localMap?.pois?.length) return;
     let alive = true;
     (async () => {
       try {
-        const localMap = await loadMap(id);
-        if (!localMap?.pois?.length) return;
         const localImages = new Map<string, string>();
         for (const p of localMap.pois)
           if (p.image) localImages.set(p.id, p.image);
         if (localImages.size === 0) return;
 
-        const mapRes = await fetch(`/api/projects/${id}/map`, {
-          cache: "no-store",
-        });
+        const mapRes = await fetch(`/api/projects/${id}/map`);
         if (!mapRes.ok) return;
         const mapJson = (await mapRes.json()) as {
           map?: { pois?: Array<{ id: string; image?: string }> };
@@ -185,7 +184,7 @@ export default function PubblicaPage({
     return () => {
       alive = false;
     };
-  }, [id, load]);
+  }, [id, localMap, load]);
 
   if (loading) {
     return (

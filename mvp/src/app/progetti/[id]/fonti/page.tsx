@@ -26,13 +26,11 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  loadSources,
   saveSources,
   loadProgress,
   saveProgress,
   newSourceId,
   loadProject,
-  loadKB,
   saveKB,
   ProjectSources,
   UploadedDocument,
@@ -52,6 +50,12 @@ import {
   KBSourceKind,
   ProjectKB,
 } from "@/lib/project-store";
+import {
+  useSources,
+  useKB,
+  useSyncedState,
+  invalidateProjectData,
+} from "@/lib/hooks/use-project-data";
 import { loadApiKeys } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
 
@@ -83,17 +87,17 @@ export default function FontiStepPage({
 }) {
   const { id: projectId } = use(params);
   const [step, setStepState] = useState<SubStep>(0);
-  const [sources, setSources] = useState<ProjectSources>({
-    images: [],
-    documents: [],
-  });
-  const [kb, setKb] = useState<ProjectKB>({ facts: [] });
+  const { data: sourcesData } = useSources(projectId);
+  const { data: kbData } = useKB(projectId);
+  const [sources, setSources] = useSyncedState<ProjectSources>(
+    sourcesData ?? { images: [], documents: [] },
+  );
+  const [kb, setKb] = useSyncedState<ProjectKB>(kbData ?? { facts: [] });
   const [quotaError, setQuotaError] = useState(false);
 
   const hydratedRef = useRef(false);
 
   useEffect(() => {
-    let alive = true;
     hydratedRef.current = false;
     const progress = loadProgress(projectId);
     const resume = Math.max(
@@ -103,22 +107,11 @@ export default function FontiStepPage({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setStepState(resume);
     saveProgress(projectId, { currentStep: "fonti" });
-    loadSources(projectId).then((loaded) => {
-      if (!alive) return;
-      setSources(loaded);
-    });
-    loadKB(projectId).then((loaded) => {
-      if (!alive) return;
-      setKb(loaded);
-    });
-    return () => {
-      alive = false;
-    };
   }, [projectId]);
 
   const persistKb = (next: ProjectKB) => {
     setKb(next);
-    saveKB(projectId, next);
+    saveKB(projectId, next).then(() => invalidateProjectData(projectId, "kb"));
   };
 
   const setStep = (next: SubStep) => {
@@ -141,6 +134,7 @@ export default function FontiStepPage({
     setSources(next);
     saveSources(projectId, next).then((result) => {
       setQuotaError(!result.ok && result.reason === "quota");
+      invalidateProjectData(projectId, "sources");
     });
   };
 

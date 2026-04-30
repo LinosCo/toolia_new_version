@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthSessionProvider } from "@/components/session-provider";
+import { SWRProvider } from "@/components/swr-provider";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,14 +40,16 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         <AuthSessionProvider>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="light"
-            enableSystem
-            disableTransitionOnChange
-          >
-            {children}
-          </ThemeProvider>
+          <SWRProvider>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="light"
+              enableSystem
+              disableTransitionOnChange
+            >
+              {children}
+            </ThemeProvider>
+          </SWRProvider>
         </AuthSessionProvider>
       </body>
     </html>
