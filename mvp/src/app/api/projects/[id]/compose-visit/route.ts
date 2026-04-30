@@ -17,10 +17,20 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const user = await getSessionUser();
+    let user: Awaited<ReturnType<typeof getSessionUser>> | null = null;
+    try {
+      user = await getSessionUser();
+    } catch {
+      // Visitatore non loggato — accesso pubblico se progetto published
+    }
 
     const project = await prisma.project.findFirst({
-      where: { id, tenantId: user.tenantId },
+      where: user
+        ? {
+            id,
+            OR: [{ tenantId: user.tenantId }, { status: "published" }],
+          }
+        : { id, status: "published" },
       select: { id: true, settingsJson: true, languages: true },
     });
     if (!project)
