@@ -3,7 +3,6 @@
 import { use } from "react";
 import { usePathname } from "next/navigation";
 import { ChatbotFab } from "@/components/visitor/chatbot-fab";
-import { ScannerFab } from "@/components/visitor/scanner-fab";
 import { VisitorMenu } from "@/components/visitor/visitor-menu";
 
 export default function PublicVisitorLayout({
@@ -16,7 +15,12 @@ export default function PublicVisitorLayout({
   const { id } = use(params);
   const basePath = `/v/${id}`;
   const pathname = usePathname();
+
+  // Welcome = entry pulita, niente shell.
+  // POI page = ha già il suo back link nel hero, hamburger sarebbe ridondante.
   const isWelcome = pathname === basePath;
+  const isPoiDetail = !!pathname?.startsWith(`${basePath}/poi/`);
+  const showHamburger = !isWelcome && !isPoiDetail;
 
   return (
     <div className="min-h-screen bg-paper text-foreground md:bg-[oklch(0.92_0.008_80)] md:flex md:items-start md:justify-center md:py-10 md:px-4 md:relative md:overflow-hidden">
@@ -65,12 +69,14 @@ export default function PublicVisitorLayout({
             </span>
           </div>
 
-          {/* Hamburger menu — ancorato al main (= bordo schermo). Sempre fisso. */}
-          {!isWelcome && <VisitorMenu basePath={basePath} />}
+          {/* Hamburger menu — ancorato al main. Nascosto su welcome e su POI
+              (POI ha già il suo back link nativo nel hero). */}
+          {showHamburger && <VisitorMenu basePath={basePath} />}
 
-          {/* FAB scanner + chatbot — ancorati al main, fissi al bordo del frame.
-              Chatbot nascosto sulla welcome (entry pulita, no distrazioni). */}
-          {!isWelcome && <ScannerFab basePath={basePath} />}
+          {/* Chatbot FAB — nascosto sulla welcome (entry pulita).
+              Scanner QR FAB rimosso: feature non ancora implementata
+              (camera API + decoder + match POI). Si reintroduce quando
+              c'è la route /scanner funzionante. */}
           {!isWelcome && <ChatbotFab projectId={id} />}
         </main>
       </div>

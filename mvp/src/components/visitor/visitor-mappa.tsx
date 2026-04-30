@@ -55,7 +55,7 @@ export function VisitorMappa({
   }));
 
   return (
-    <div className="min-h-screen flex flex-col pt-20 pb-24 px-5">
+    <div className="min-h-screen flex flex-col pt-28 pb-24 px-5">
       <header className="mb-6">
         <p className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground mb-2">
           Esplora liberamente

@@ -52,7 +52,7 @@ export function VisitorItinerari({
   const { paths, pois, narrators } = data;
 
   return (
-    <div className="min-h-screen pb-24 pt-20 px-5">
+    <div className="min-h-screen pb-24 pt-28 px-5">
       <header className="mb-8">
         <p className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground mb-3">
           Itinerari tematici

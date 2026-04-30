@@ -174,7 +174,7 @@ export function VisitorCrea({
   const canComposeFromStep0 = !hasDrivers || totalRating > 0;
 
   return (
-    <div className="min-h-screen flex flex-col px-5 pt-20 pb-32">
+    <div className="min-h-screen flex flex-col px-5 pt-28 pb-32">
       <Link
         href={`${basePath}/scegli`}
         className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-6 self-start"

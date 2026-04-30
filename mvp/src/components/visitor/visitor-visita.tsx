@@ -158,7 +158,7 @@ export function VisitorVisita({
   return (
     <div className="min-h-screen pb-32">
       {/* Header */}
-      <section className="px-5 pt-20 pb-6">
+      <section className="px-5 pt-28 pb-6">
         <Link
           href={`${basePath}/itinerari`}
           className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-5"

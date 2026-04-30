@@ -5,7 +5,7 @@ import { ArrowRight, Compass, Sparkles } from "lucide-react";
 
 export function VisitorScegli({ basePath }: { basePath: string }) {
   return (
-    <div className="min-h-screen flex flex-col px-5 pt-24 pb-32">
+    <div className="min-h-screen flex flex-col px-5 pt-28 pb-32">
       <header className="mb-10">
         <p className="text-[10px] uppercase tracking-[0.28em] text-muted-foreground mb-3">
           Scegli come visitare

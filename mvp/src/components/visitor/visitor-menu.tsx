@@ -3,15 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Home,
-  Compass,
-  Map,
-  QrCode,
-  Languages,
-  Menu,
-  X,
-} from "lucide-react";
+import { Home, Compass, Map, Menu, X } from "lucide-react";
 
 interface MenuItem {
   label: string;
@@ -23,12 +15,12 @@ export function VisitorMenu({ basePath }: { basePath: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
+  // Solo route esistenti. Scanner QR e Lingua tornano quando avranno
+  // una pagina implementata.
   const items: MenuItem[] = [
     { label: "Homepage", href: basePath, icon: Home },
     { label: "Itinerari", href: `${basePath}/itinerari`, icon: Compass },
     { label: "Mappa", href: `${basePath}/mappa`, icon: Map },
-    { label: "Scanner QR", href: `${basePath}/scanner`, icon: QrCode },
-    { label: "Lingua", href: `${basePath}/lingua`, icon: Languages },
   ];
 
   return (
