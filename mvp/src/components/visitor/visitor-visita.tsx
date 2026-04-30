@@ -12,6 +12,7 @@ import {
   MapPin,
   Star,
 } from "lucide-react";
+import { PreviewMap } from "@/components/visitor/preview-map";
 import type {
   ComposedItinerary,
   ComposedItineraryItem,
@@ -138,25 +139,37 @@ export function VisitorVisita({
     ? "La tua visita"
     : (path?.name ?? data.project.name);
   const subtitle = isComposed
-    ? "Composta per te — pronti a partire"
+    ? "Composta per te dall'AI"
     : (path?.description ?? "");
   const queryString = isComposed ? "?compose=1" : pathId ? `?path=${pathId}` : "";
 
+  // Mappa POI sequence (per polyline)
+  const orderedIds = itineraryItems.map((it) => it.poi.id);
+  const mapPois = itineraryItems.map((it) => ({
+    id: it.poi.id,
+    name: it.poi.name,
+    lat: it.poi.lat,
+    lng: it.poi.lng,
+  }));
+  const mapHasGeo = mapPois.some(
+    (p) => typeof p.lat === "number" && typeof p.lng === "number",
+  );
+
   return (
-    <div className="min-h-screen bg-paper pb-20">
+    <div className="min-h-screen pb-32">
       {/* Header */}
-      <section className="px-5 pt-10 pb-8 border-b border-border/60">
+      <section className="px-5 pt-20 pb-6">
         <Link
-          href={basePath}
-          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-6"
+          href={`${basePath}/itinerari`}
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-5"
         >
           <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.8} />
-          Torna all&apos;ingresso
+          Cambia itinerario
         </Link>
-        <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
+        <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground mb-2">
           {isComposed ? "Visita personalizzata" : "Itinerario d'autore"}
         </p>
-        <h1 className="font-heading italic text-[34px] tracking-tight mb-4">
+        <h1 className="font-heading italic text-[32px] leading-tight tracking-tight mb-3">
           {title}
         </h1>
         {subtitle && (
@@ -165,7 +178,7 @@ export function VisitorVisita({
           </p>
         )}
 
-        <div className="mt-6 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-2">
           <span className="inline-flex items-center gap-1.5 text-[13px] text-muted-foreground">
             <MapPin className="h-3.5 w-3.5" strokeWidth={1.8} />
             {itineraryItems.length} luoghi
@@ -183,8 +196,23 @@ export function VisitorVisita({
         </div>
       </section>
 
-      {/* Itinerary list */}
-      <section className="px-5 pt-8">
+      {/* Mappa con percorso */}
+      {mapHasGeo && itineraryItems.length > 0 && (
+        <section className="px-5 mb-8">
+          <PreviewMap
+            projectId={projectId}
+            pois={mapPois}
+            pathOrder={orderedIds}
+            aspect="aspect-square"
+          />
+        </section>
+      )}
+
+      {/* Lista tappe */}
+      <section className="px-5">
+        <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground mb-4">
+          Le tappe
+        </p>
         {itineraryItems.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border/70 p-8 text-center text-sm text-muted-foreground">
             Nessuna tappa in questo itinerario.
@@ -255,7 +283,10 @@ export function VisitorVisita({
                           )}
                           {it.scheda?.audio && (
                             <span className="inline-flex items-center gap-1">
-                              <Headphones className="h-3 w-3" strokeWidth={1.8} />
+                              <Headphones
+                                className="h-3 w-3"
+                                strokeWidth={1.8}
+                              />
                               audio
                             </span>
                           )}

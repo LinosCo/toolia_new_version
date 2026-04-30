@@ -12,22 +12,35 @@ type Poi = {
   lng: number | null;
 };
 
+interface PreviewMapProps {
+  pois: Poi[];
+  projectId: string;
+  /** Sequenza ordinata di POI ID che compone il percorso. Se passata, marker numerati e polyline. */
+  pathOrder?: string[];
+  /** ID del POI attualmente attivo (es. nella scheda) — viene evidenziato. */
+  activePoiId?: string;
+  /** Override dell'aspect ratio (default 16/10). */
+  aspect?: string;
+  onSelect?: (poiId: string) => void;
+}
+
 export function PreviewMap({
   pois,
   projectId,
+  pathOrder,
+  activePoiId,
+  aspect,
   onSelect,
-}: {
-  pois: Poi[];
-  projectId: string;
-  onSelect?: (poiId: string) => void;
-}) {
+}: PreviewMapProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
-  const [hasKey, setHasKey] = useState<boolean | null>(null);
+  const [hasKey] = useState<boolean | null>(() => {
+    if (typeof window === "undefined") return null;
+    return !!loadApiKeys().googleMaps;
+  });
 
   useEffect(() => {
     const key = loadApiKeys().googleMaps;
-    setHasKey(!!key);
     if (!key) return;
     if (!ref.current) return;
 
@@ -64,23 +77,49 @@ export function PreviewMap({
         });
 
         const bounds = new maps.LatLngBounds();
-        geo.forEach((p, idx) => {
+        const ordered = pathOrder
+          ? (pathOrder
+              .map((id) => geo.find((g) => g.id === id))
+              .filter(Boolean) as Array<Poi & { lat: number; lng: number }>)
+          : geo;
+
+        // Polyline tra i POI dell'ordine
+        if (pathOrder && ordered.length > 1) {
+          new maps.Polyline({
+            path: ordered.map((p) => ({ lat: p.lat, lng: p.lng })),
+            geodesic: true,
+            strokeColor: "#b85a2b",
+            strokeOpacity: 0.85,
+            strokeWeight: 3,
+            map,
+          });
+        }
+
+        // Marker
+        const markersList = pathOrder ? ordered : geo;
+        markersList.forEach((p, idx) => {
+          const isActive = p.id === activePoiId;
+          const label = pathOrder
+            ? {
+                text: String(idx + 1),
+                color: "#fff",
+                fontWeight: "600",
+                fontSize: "13px",
+              }
+            : null;
           const marker = new maps.Marker({
             position: { lat: p.lat, lng: p.lng },
             map,
-            label: {
-              text: String(idx + 1),
-              color: "#fff",
-              fontWeight: "600",
-              fontSize: "13px",
-            },
+            label: label ?? undefined,
+            title: p.name,
+            zIndex: isActive ? 1000 : 1,
             icon: {
               path: maps.SymbolPath.CIRCLE,
-              scale: 14,
-              fillColor: "#b85a2b",
+              scale: isActive ? 18 : 14,
+              fillColor: isActive ? "#1f1f1f" : "#b85a2b",
               fillOpacity: 1,
               strokeColor: "#fff",
-              strokeWeight: 2,
+              strokeWeight: isActive ? 3 : 2,
             },
           });
           bounds.extend({ lat: p.lat, lng: p.lng });
@@ -88,11 +127,11 @@ export function PreviewMap({
             marker.addListener("click", () => onSelect(p.id));
           } else {
             marker.addListener("click", () => {
-              window.location.href = `/progetti/${projectId}/preview/poi/${p.id}`;
+              window.location.href = `/v/${projectId}/poi/${p.id}`;
             });
           }
         });
-        if (geo.length > 1) map.fitBounds(bounds, 60);
+        if (markersList.length > 1) map.fitBounds(bounds, 60);
 
         setReady(true);
       } catch {
@@ -102,7 +141,7 @@ export function PreviewMap({
     return () => {
       alive = false;
     };
-  }, [pois, projectId, onSelect]);
+  }, [pois, projectId, pathOrder, activePoiId, onSelect]);
 
   if (hasKey === false) {
     return (
@@ -119,7 +158,11 @@ export function PreviewMap({
   }
 
   return (
-    <div className="relative aspect-[16/10] md:aspect-[21/9] rounded-3xl overflow-hidden border border-border/60 bg-muted">
+    <div
+      className={`relative rounded-3xl overflow-hidden border border-border/60 bg-muted ${
+        aspect ?? "aspect-[16/10] md:aspect-[21/9]"
+      }`}
+    >
       <div ref={ref} className="absolute inset-0" />
       {!ready && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted">

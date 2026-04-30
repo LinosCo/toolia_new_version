@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,17 +10,75 @@ import {
   Clock,
   Loader2,
   Sparkles,
+  Star,
 } from "lucide-react";
 import type { VisitorData } from "@/lib/visitor-types";
 
-type DurationChoice = { value: number; label: string; hint: string };
+const RATING_STEPS = [0, 1, 2, 3, 4, 5] as const;
+type Rating = (typeof RATING_STEPS)[number];
 
-const DURATIONS: DurationChoice[] = [
-  { value: 30, label: "30 min", hint: "Un assaggio veloce" },
-  { value: 60, label: "1 ora", hint: "La visita classica" },
-  { value: 90, label: "1 ora e mezza", hint: "Più spazio per raccontare" },
-  { value: 150, label: "Più di 2 ore", hint: "Tutto il luogo, con calma" },
-];
+interface DurationSlot {
+  value: number; // minuti
+  label: string;
+  hint: string;
+}
+
+function deriveDurationSlots(data: VisitorData): DurationSlot[] {
+  // Stima: per ogni POI, prendi la scheda media (al primo narratore) in IT
+  const byPoi = new Map<string, number>();
+  for (const s of data.schede) {
+    const dur = s.durationEstimateSeconds ?? 60;
+    const cur = byPoi.get(s.poiId);
+    if (cur === undefined || dur < cur) byPoi.set(s.poiId, dur);
+  }
+  // Aggiungi minStay del POI per realismo
+  let coreSec = 0;
+  let totalSec = 0;
+  for (const poi of data.pois) {
+    const sched = byPoi.get(poi.id) ?? 0;
+    const stay = poi.minStaySeconds ?? 0;
+    const sec = sched + stay;
+    totalSec += sec;
+    // Considera "core" se almeno una scheda del POI è isCore
+    const hasCore = data.schede.some((s) => s.poiId === poi.id && s.isCore);
+    if (hasCore) coreSec += sec;
+  }
+
+  const round5 = (m: number) => Math.max(15, Math.round(m / 5) * 5);
+  const shortMin = round5(coreSec / 60);
+  const longMin = round5(totalSec / 60);
+  const midMin = round5((coreSec + (totalSec - coreSec) * 0.5) / 60);
+
+  // Se i tre slot collassano (progetto piccolo), genera fallback ragionevole
+  if (longMin <= shortMin + 5) {
+    return [
+      { value: shortMin, label: `${shortMin} min`, hint: "L'essenziale" },
+      {
+        value: shortMin * 2,
+        label: `${shortMin * 2} min`,
+        hint: "Con calma",
+      },
+    ];
+  }
+
+  return [
+    {
+      value: shortMin,
+      label: `${shortMin} min`,
+      hint: "Solo le tappe essenziali",
+    },
+    {
+      value: midMin,
+      label: `${midMin} min`,
+      hint: "Una visita equilibrata",
+    },
+    {
+      value: longMin,
+      label: longMin >= 120 ? `${(longMin / 60).toFixed(1)} h` : `${longMin} min`,
+      hint: "Tutto, con calma",
+    },
+  ];
+}
 
 export function VisitorCrea({
   projectId,
@@ -31,12 +89,9 @@ export function VisitorCrea({
 }) {
   const router = useRouter();
   const [data, setData] = useState<VisitorData | null>(null);
-  const [step, setStep] = useState<0 | 1 | 2>(0);
-  const [selectedDrivers, setSelectedDrivers] = useState<string[]>([]);
-  const [duration, setDuration] = useState<number>(60);
-  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(
-    null,
-  );
+  const [step, setStep] = useState<0 | 1>(0);
+  const [ratings, setRatings] = useState<Record<string, Rating>>({});
+  const [duration, setDuration] = useState<number | null>(null);
   const [composing, setComposing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,22 +104,36 @@ export function VisitorCrea({
     })();
   }, [projectId]);
 
-  const toggleDriver = (did: string) => {
-    setSelectedDrivers((cur) =>
-      cur.includes(did) ? cur.filter((x) => x !== did) : [...cur, did],
-    );
+  const slots = useMemo(() => (data ? deriveDurationSlots(data) : []), [data]);
+  useEffect(() => {
+    if (slots.length && duration === null) {
+      // default = slot medio se presente, altrimenti il primo
+      setDuration(slots[Math.min(1, slots.length - 1)].value);
+    }
+  }, [slots, duration]);
+
+  const setRating = (driverId: string, value: Rating) => {
+    setRatings((cur) => ({ ...cur, [driverId]: value }));
   };
 
   const compose = async () => {
+    if (!duration) return;
     setComposing(true);
     setError(null);
     try {
+      // Driver con rating > 0, ordinati per peso desc
+      const selectedDrivers = Object.entries(ratings)
+        .filter(([, v]) => v > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([id]) => id);
+
       const res = await fetch(`/api/projects/${projectId}/compose-visit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           driverIds: selectedDrivers,
-          personaId: selectedPersonaId,
+          driverRatings: ratings,
+          personaId: null,
           durationMinutes: duration,
           familyMode: data?.project.familyMode.enabled ?? false,
         }),
@@ -96,38 +165,38 @@ export function VisitorCrea({
     );
   }
 
-  const { drivers, personas } = data;
+  const { drivers } = data;
   const hasDrivers = drivers.length > 0;
-  const hasPersonas = personas.length > 0;
-  const canNext = step === 0 ? selectedDrivers.length > 0 || !hasDrivers : true;
+  const totalRating = Object.values(ratings).reduce<number>(
+    (a, b) => a + b,
+    0,
+  );
+  const canComposeFromStep0 = !hasDrivers || totalRating > 0;
 
   return (
-    <div className="min-h-screen bg-paper pt-10 pb-20 px-5">
+    <div className="min-h-screen flex flex-col px-5 pt-20 pb-12">
       <Link
-        href={basePath}
-        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-8"
+        href={`${basePath}/scegli`}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-6 self-start"
       >
         <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.8} />
-        Torna all&apos;ingresso
+        Indietro
       </Link>
 
-      {/* Stepper progress */}
-      <div className="flex items-center gap-3 mb-12">
-        {[0, 1, 2].map((i) => (
-          <div
-            key={i}
-            className="flex items-center gap-3 flex-1 last:flex-none"
-          >
+      {/* Step indicator */}
+      <div className="flex items-center gap-3 mb-8">
+        {[0, 1].map((i) => (
+          <div key={i} className="flex items-center gap-3 flex-1 last:flex-none">
             <div
-              className={`h-8 w-8 rounded-full flex items-center justify-center text-[11px] font-medium transition-colors ${
+              className={`h-7 w-7 rounded-full flex items-center justify-center text-[11px] font-medium transition-colors ${
                 step >= i
                   ? "bg-foreground text-background"
                   : "bg-muted text-muted-foreground"
               }`}
             >
-              {step > i ? <Check className="h-3.5 w-3.5" /> : i + 1}
+              {step > i ? <Check className="h-3 w-3" /> : i + 1}
             </div>
-            {i < 2 && (
+            {i < 1 && (
               <div
                 className={`h-px flex-1 transition-colors ${
                   step > i ? "bg-foreground" : "bg-border"
@@ -138,99 +207,98 @@ export function VisitorCrea({
         ))}
       </div>
 
-      {/* STEP 0: driver */}
+      {/* STEP 0: rating driver */}
       {step === 0 && hasDrivers && (
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
-            Primo passaggio
+        <div className="flex-1">
+          <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
+            Le tue preferenze
           </p>
-          <h1 className="font-heading italic text-[28px] tracking-tight mb-3">
-            Cosa ti interessa di più?
+          <h1 className="font-heading italic text-[28px] leading-tight tracking-tight mb-3">
+            Cosa ti piacerebbe approfondire?
           </h1>
           <p className="text-sm text-muted-foreground mb-8">
-            Scegli uno o più temi. Adatteremo la visita ai tuoi interessi.
+            Da 0 a 5 stelle quanto ti interessa ognuno di questi argomenti.
           </p>
 
-          <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-2">
             {drivers.map((d) => {
-              const active = selectedDrivers.includes(d.id);
+              const value = ratings[d.id] ?? 0;
               return (
-                <button
+                <div
                   key={d.id}
-                  onClick={() => toggleDriver(d.id)}
-                  className={`text-left p-5 rounded-2xl border transition-all ${
-                    active
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border/70 bg-card hover:border-foreground/40"
-                  }`}
+                  className="rounded-2xl border border-border/70 bg-card p-4"
                 >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <p className="text-[10px] uppercase tracking-[0.22em] opacity-70">
-                      {d.domain}
-                    </p>
-                    {active && <Check className="h-4 w-4 shrink-0" />}
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div className="min-w-0">
+                      <p className="font-heading italic text-[20px] leading-tight tracking-tight truncate">
+                        {d.name}
+                      </p>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground mt-0.5">
+                        {d.domain}
+                      </p>
+                    </div>
                   </div>
-                  <p className="font-heading italic text-2xl leading-tight mb-2">
-                    {d.name}
-                  </p>
-                  <p
-                    className={`text-[13px] leading-relaxed ${
-                      active ? "text-background/80" : "text-muted-foreground"
-                    }`}
-                  >
-                    {d.narrativeValue || d.description}
-                  </p>
-                </button>
+                  <div className="flex items-center justify-between">
+                    {RATING_STEPS.map((r) => {
+                      const filled = value >= r && r > 0;
+                      const isZero = r === 0;
+                      return (
+                        <button
+                          key={r}
+                          type="button"
+                          onClick={() => setRating(d.id, r)}
+                          aria-label={`Voto ${r}`}
+                          className={`flex-1 flex items-center justify-center py-1 ${
+                            isZero ? "" : ""
+                          }`}
+                        >
+                          {isZero ? (
+                            <span
+                              className={`text-[11px] uppercase tracking-[0.18em] transition-colors ${
+                                value === 0
+                                  ? "text-foreground font-medium"
+                                  : "text-muted-foreground/60"
+                              }`}
+                            >
+                              No
+                            </span>
+                          ) : (
+                            <Star
+                              className={`h-6 w-6 transition-colors ${
+                                filled
+                                  ? "fill-brand stroke-brand"
+                                  : "fill-transparent stroke-muted-foreground/40"
+                              }`}
+                              strokeWidth={1.4}
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               );
             })}
           </div>
         </div>
       )}
 
-      {/* STEP 0 — persona se nessun driver */}
-      {step === 0 && !hasDrivers && hasPersonas && (
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
-            Primo passaggio
+      {step === 0 && !hasDrivers && (
+        <div className="flex-1 flex items-center justify-center">
+          <p className="text-sm text-muted-foreground text-center max-w-xs">
+            Nessun tema configurato per questo progetto. Procediamo direttamente
+            alla scelta della durata.
           </p>
-          <h1 className="font-heading italic text-[28px] tracking-tight mb-3">
-            Come ti vuoi sentire?
-          </h1>
-          <div className="flex flex-col gap-3 mt-8">
-            {personas.map((p) => {
-              const active = selectedPersonaId === p.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedPersonaId(active ? null : p.id)}
-                  className={`text-left p-5 rounded-2xl border transition-all ${
-                    active
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border/70 bg-card hover:border-foreground/40"
-                  }`}
-                >
-                  <p className="font-heading italic text-2xl">{p.name}</p>
-                  <p
-                    className={`text-[13px] leading-relaxed mt-2 ${
-                      active ? "text-background/80" : "text-muted-foreground"
-                    }`}
-                  >
-                    {p.motivation}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
         </div>
       )}
 
       {/* STEP 1: durata */}
       {step === 1 && (
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
-            Secondo passaggio
+        <div className="flex-1">
+          <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
+            Quanto tempo
           </p>
-          <h1 className="font-heading italic text-[28px] tracking-tight mb-3">
+          <h1 className="font-heading italic text-[28px] leading-tight tracking-tight mb-3">
             Quanto tempo hai?
           </h1>
           <p className="text-sm text-muted-foreground mb-8">
@@ -238,109 +306,36 @@ export function VisitorCrea({
           </p>
 
           <div className="flex flex-col gap-3">
-            {DURATIONS.map((d) => {
-              const active = duration === d.value;
+            {slots.map((s) => {
+              const active = duration === s.value;
               return (
                 <button
-                  key={d.value}
-                  onClick={() => setDuration(d.value)}
+                  key={s.value}
+                  type="button"
+                  onClick={() => setDuration(s.value)}
                   className={`flex items-start gap-4 p-5 rounded-2xl border text-left transition-all ${
                     active
-                      ? "border-foreground bg-foreground text-background"
+                      ? "border-brand bg-brand text-white"
                       : "border-border/70 bg-card hover:border-foreground/40"
                   }`}
                 >
-                  <Clock
-                    className="h-5 w-5 mt-0.5 shrink-0"
-                    strokeWidth={1.6}
-                  />
+                  <Clock className="h-5 w-5 mt-0.5 shrink-0" strokeWidth={1.6} />
                   <div>
                     <p className="font-heading italic text-2xl leading-tight mb-1">
-                      {d.label}
+                      {s.label}
                     </p>
                     <p
                       className={`text-[13px] leading-relaxed ${
-                        active
-                          ? "text-background/80"
-                          : "text-muted-foreground"
+                        active ? "text-white/85" : "text-muted-foreground"
                       }`}
                     >
-                      {d.hint}
+                      {s.hint}
                     </p>
                   </div>
                 </button>
               );
             })}
           </div>
-        </div>
-      )}
-
-      {/* STEP 2: persona o conferma */}
-      {step === 2 && (
-        <div>
-          <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground mb-3">
-            Ultimo passaggio
-          </p>
-          <h1 className="font-heading italic text-[28px] tracking-tight mb-3">
-            Come ti racconto il luogo?
-          </h1>
-          <p className="text-sm text-muted-foreground mb-8">
-            Scegli un&apos;attitudine — oppure salta e lascia decidere a noi.
-          </p>
-
-          {hasPersonas ? (
-            <div className="flex flex-col gap-3">
-              <button
-                onClick={() => setSelectedPersonaId(null)}
-                className={`text-left p-5 rounded-2xl border transition-all ${
-                  selectedPersonaId === null
-                    ? "border-foreground bg-foreground text-background"
-                    : "border-border/70 bg-card hover:border-foreground/40"
-                }`}
-              >
-                <p className="font-heading italic text-2xl">Decidi tu</p>
-                <p
-                  className={`text-[13px] leading-relaxed mt-2 ${
-                    selectedPersonaId === null
-                      ? "text-background/80"
-                      : "text-muted-foreground"
-                  }`}
-                >
-                  Usa il tono editoriale del progetto
-                </p>
-              </button>
-              {personas.map((p) => {
-                const active = selectedPersonaId === p.id;
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => setSelectedPersonaId(p.id)}
-                    className={`text-left p-5 rounded-2xl border transition-all ${
-                      active
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border/70 bg-card hover:border-foreground/40"
-                    }`}
-                  >
-                    <p className="font-heading italic text-2xl">{p.name}</p>
-                    <p
-                      className={`text-[13px] leading-relaxed mt-2 ${
-                        active
-                          ? "text-background/80"
-                          : "text-muted-foreground"
-                      }`}
-                    >
-                      {p.motivation}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Nessun profilo visitatore configurato. Procediamo con il tono
-              editoriale di default.
-            </p>
-          )}
         </div>
       )}
 
@@ -351,34 +346,35 @@ export function VisitorCrea({
       )}
 
       {/* Nav */}
-      <div className="mt-12 flex items-center justify-between">
+      <div className="mt-8 flex items-center justify-between">
         {step > 0 ? (
           <button
-            onClick={() =>
-              setStep((s) => (s > 0 ? ((s - 1) as 0 | 1 | 2) : s))
-            }
+            type="button"
+            onClick={() => setStep(0)}
             className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
           >
             <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.8} />
-            Indietro
+            Ricomincia
           </button>
         ) : (
           <span />
         )}
-        {step < 2 ? (
+        {step === 0 ? (
           <button
-            disabled={!canNext}
-            onClick={() => setStep((s) => (s + 1) as 0 | 1 | 2)}
-            className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            type="button"
+            disabled={!canComposeFromStep0}
+            onClick={() => setStep(1)}
+            className="inline-flex items-center gap-2 h-12 px-6 rounded-full bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Avanti
+            Continua
             <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
           </button>
         ) : (
           <button
-            disabled={composing}
+            type="button"
+            disabled={composing || !duration}
             onClick={compose}
-            className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-60"
+            className="inline-flex items-center gap-2 h-12 px-6 rounded-full bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-60"
           >
             {composing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
