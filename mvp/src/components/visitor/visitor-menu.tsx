@@ -36,7 +36,7 @@ export function VisitorMenu({ basePath }: { basePath: string }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="absolute top-4 left-4 z-30 h-11 w-11 rounded-full bg-card/95 backdrop-blur-sm border border-border/60 shadow-lg flex items-center justify-center hover:bg-card transition-colors"
+        className="absolute top-4 left-4 md:top-14 z-30 h-11 w-11 rounded-full bg-card/95 backdrop-blur-sm border border-border/60 shadow-lg flex items-center justify-center hover:bg-card transition-colors"
         aria-label="Apri menu"
       >
         <Menu className="h-5 w-5" strokeWidth={1.8} />

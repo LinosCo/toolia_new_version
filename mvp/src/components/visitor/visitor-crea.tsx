@@ -14,8 +14,8 @@ import {
 } from "lucide-react";
 import type { VisitorData } from "@/lib/visitor-types";
 
-const RATING_STEPS = [0, 1, 2, 3, 4, 5] as const;
-type Rating = (typeof RATING_STEPS)[number];
+const RATING_STARS = [1, 2, 3, 4, 5] as const;
+type Rating = 0 | 1 | 2 | 3 | 4 | 5;
 
 interface DurationSlot {
   value: number; // minuti
@@ -174,7 +174,7 @@ export function VisitorCrea({
   const canComposeFromStep0 = !hasDrivers || totalRating > 0;
 
   return (
-    <div className="min-h-screen flex flex-col px-5 pt-20 pb-12">
+    <div className="min-h-screen flex flex-col px-5 pt-20 pb-32">
       <Link
         href={`${basePath}/scegli`}
         className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground mb-6 self-start"
@@ -238,40 +238,27 @@ export function VisitorCrea({
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    {RATING_STEPS.map((r) => {
-                      const filled = value >= r && r > 0;
-                      const isZero = r === 0;
+                  <div className="flex items-center justify-center gap-2">
+                    {RATING_STARS.map((r) => {
+                      const filled = value >= r;
+                      // tap sulla stella già attiva = toggle off
+                      const next: Rating = value === r ? ((r - 1) as Rating) : r;
                       return (
                         <button
                           key={r}
                           type="button"
-                          onClick={() => setRating(d.id, r)}
-                          aria-label={`Voto ${r}`}
-                          className={`flex-1 flex items-center justify-center py-1 ${
-                            isZero ? "" : ""
-                          }`}
+                          onClick={() => setRating(d.id, next)}
+                          aria-label={`${r} stelle su 5`}
+                          className="p-1.5 -m-1.5"
                         >
-                          {isZero ? (
-                            <span
-                              className={`text-[11px] uppercase tracking-[0.18em] transition-colors ${
-                                value === 0
-                                  ? "text-foreground font-medium"
-                                  : "text-muted-foreground/60"
-                              }`}
-                            >
-                              No
-                            </span>
-                          ) : (
-                            <Star
-                              className={`h-6 w-6 transition-colors ${
-                                filled
-                                  ? "fill-brand stroke-brand"
-                                  : "fill-transparent stroke-muted-foreground/40"
-                              }`}
-                              strokeWidth={1.4}
-                            />
-                          )}
+                          <Star
+                            className={`h-7 w-7 transition-colors ${
+                              filled
+                                ? "fill-brand stroke-brand"
+                                : "fill-transparent stroke-muted-foreground/40"
+                            }`}
+                            strokeWidth={1.4}
+                          />
                         </button>
                       );
                     })}
@@ -345,26 +332,14 @@ export function VisitorCrea({
         </div>
       )}
 
-      {/* Nav */}
-      <div className="mt-8 flex items-center justify-between">
-        {step > 0 ? (
-          <button
-            type="button"
-            onClick={() => setStep(0)}
-            className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
-          >
-            <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.8} />
-            Ricomincia
-          </button>
-        ) : (
-          <span />
-        )}
+      {/* Nav: CTA primaria full-width + secondaria sotto, niente overlap con i FAB */}
+      <div className="mt-8 flex flex-col gap-3 px-2">
         {step === 0 ? (
           <button
             type="button"
             disabled={!canComposeFromStep0}
             onClick={() => setStep(1)}
-            className="inline-flex items-center gap-2 h-12 px-6 rounded-full bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full bg-foreground text-background text-sm font-medium hover:bg-foreground/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Continua
             <ArrowRight className="h-4 w-4" strokeWidth={1.8} />
@@ -374,7 +349,7 @@ export function VisitorCrea({
             type="button"
             disabled={composing || !duration}
             onClick={compose}
-            className="inline-flex items-center gap-2 h-12 px-6 rounded-full bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-2 h-12 px-6 rounded-full bg-brand text-white text-sm font-medium hover:bg-brand/90 transition-colors disabled:opacity-60"
           >
             {composing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -382,6 +357,16 @@ export function VisitorCrea({
               <Sparkles className="h-4 w-4" strokeWidth={1.8} />
             )}
             Componi la mia visita
+          </button>
+        )}
+        {step > 0 && (
+          <button
+            type="button"
+            onClick={() => setStep(0)}
+            className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center justify-center gap-1.5 h-10"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.8} />
+            Ricomincia
           </button>
         )}
       </div>
