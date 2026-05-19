@@ -15,7 +15,7 @@ interface PoiInput {
 const SYSTEM = `Sei un curatore di audioguide culturali. Ricevi una lista di POI di un luogo e proponi 3-5 ZONE narrative che raggruppino logicamente i POI. Ogni zona deve avere:
 - un nome evocativo ma chiaro
 - una promessa narrativa (cosa il visitatore scopre in quella zona)
-- una funzione narrativa: "opening" (inizio), "development" (sviluppo centrale), "climax" (momento più forte), "closure" (chiusura)
+- una funzione narrativa: "apertura" (inizio), "sviluppo" (sviluppo centrale), "climax" (momento più forte), "chiusura" (chiusura)
 
 Le zone sono raggruppamenti narrativi, non geografici rigidi. Più POI possono essere nella stessa zona.`;
 
@@ -46,14 +46,14 @@ Rispondi in JSON:
     {
       "name": "nome zona",
       "narrativePromise": "cosa si scopre in questa zona (1 frase)",
-      "function": "opening" | "development" | "climax" | "closure",
+      "function": "apertura" | "sviluppo" | "climax" | "chiusura",
       "poiIds": ["id1", "id2", ...]
     }
   ]
 }
 
 Regole:
-- Almeno UNA zona "opening" (inizio visita, punti di ingresso/orientamento)
+- Almeno UNA zona "apertura" (inizio visita, punti di ingresso/orientamento)
 - Almeno UNA zona "climax" (i punti più forti del progetto)
 - Ogni POI in una sola zona. Tutti i POI coperti.`;
 
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
     }
     const parsed = JSON.parse(raw);
 
-    const allowedFn = new Set(["opening", "development", "climax", "closure"]);
+    const allowedFn = new Set(["apertura", "sviluppo", "climax", "chiusura"]);
     const poiIds = new Set(pois.map((p) => p.id));
 
     const zones = Array.isArray(parsed.zones)
@@ -168,7 +168,7 @@ export async function POST(req: NextRequest) {
                     : "",
                 function: allowedFn.has(z.function as string)
                   ? (z.function as string)
-                  : "development",
+                  : "sviluppo",
                 poiIds: Array.isArray(z.poiIds)
                   ? (z.poiIds as unknown[])
                       .filter(
