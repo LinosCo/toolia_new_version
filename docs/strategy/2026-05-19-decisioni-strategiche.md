@@ -187,10 +187,26 @@ ai-interviewer/     (repo separato)
 
 **Problema**: 2 repo, 2 schema Prisma, 2 auth systems, codice duplicato (auth helpers, AI clients, UI components).
 
-### 4.2 Stato target — Monorepo `suite-tuner`
+### 4.2 Naming convention (importante per evitare confusione)
+
+Tre termini correlati che NON vanno mescolati:
+
+| Termine | Cosa indica | Esempio uso |
+|---|---|---|
+| **studio-tuner** | Il **monorepo** (progetto tecnico/cartella codice) | `cd ~/dev/studio-tuner`, `git clone https://github.com/voler/studio-tuner` |
+| **Voler.ai Tuner Suite** | Il **brand commerciale** (cosa il cliente vede sul sito) | "Acquista la Voler.ai Tuner Suite" — landing page marketing |
+| **Workspace** | La **UI admin** dentro Content Tuner (e Experience Tuner) — dove l'operatore lavora | "Apri il Content Tuner Workspace per editare le schede" |
+
+**REGOLA**: la parola "Studio" è riservata SOLO al nome del monorepo `studio-tuner`. Nei prodotti, la UI lato operatore si chiama **Workspace** (es. "CT Workspace", "ET Workspace"). Questo previene confusione fra "studio = monorepo" e "studio = admin UI".
+
+**Migrazione terminologica**:
+- ❌ Vecchio: "Toolia Studio" (UI admin di Toolia)
+- ✅ Nuovo: "Content Tuner Workspace" (UI admin di CT) + "Experience Tuner Workspace" (UI admin di ET)
+
+### 4.3 Stato target — Monorepo `studio-tuner`
 
 ```
-suite-tuner/
+studio-tuner/
 ├── apps/
 │   ├── business-tuner/           # Frontend BT
 │   ├── content-tuner/            # Frontend CT (= ex Toolia Studio admin)
@@ -210,7 +226,7 @@ suite-tuner/
     └── delivery-pack-builder/    # Builder DeliveryPack per ET
 ```
 
-### 4.3 Tooling
+### 4.4 Tooling
 
 - **Monorepo manager**: Turborepo (build cache + parallel)
 - **Package manager**: pnpm (con workspaces nativi)
@@ -218,7 +234,7 @@ suite-tuner/
 - **Auth**: NextAuth v5 con shared session su `.voler.ai` cookie domain
 - **Deploy**: Railway con 3 services separati (uno per app), tutti consumano stesso DB + stesso storage R2
 
-### 4.4 Schema DB strategy (chiave!)
+### 4.5 Schema DB strategy (chiave!)
 
 Schema unificato con discriminator per app:
 - **Tabelle condivise**: `Organization`, `User`, `Workspace`, `Membership`, `ApiKey`, `LlmUsage`, `BrandAsset`, `BrandSkill`
@@ -228,18 +244,18 @@ Schema unificato con discriminator per app:
 
 **Pattern**: ogni `Project` può avere `purchasedModules: ["business_tuner", "content_tuner", "experience_tuner"]`. Le UI delle 3 app filtrano la propria visualizzazione in base ai moduli attivi del tenant.
 
-### 4.5 Roadmap refactor (graduale, non big-bang)
+### 4.6 Roadmap refactor (graduale, non big-bang)
 
 | Stadio | Durata | Cosa | Risultato |
 |---|---|---|---|
 | **Stadio 1** (now) | 10-14 sett | Fase 2 di Toolia: costruisci Content Engine + media preservation completi NEL repo Toolia attuale. Organizza codice in moduli logici (`lib/content-engine`, `lib/media-pipeline`, `lib/brand-voice`) | Content engine maturo, pronto per estrazione |
-| **Stadio 2** (refactor) | 2-3 sett | Crea `suite-tuner` monorepo, sposta `lib/*` di Toolia in `packages/@voler/*`, sposta UI Studio in `apps/content-tuner`, UI visitor in `apps/experience-tuner`. Migra anche BT in `apps/business-tuner` con migrazione DB ad UNA sola istanza Postgres. | 1 monorepo, 3 app deployate separatamente, DB unificato |
+| **Stadio 2** (refactor) | 2-3 sett | Crea `studio-tuner` monorepo, sposta `lib/*` di Toolia in `packages/@voler/*`, sposta UI Studio in `apps/content-tuner`, UI visitor in `apps/experience-tuner`. Migra anche BT in `apps/business-tuner` con migrazione DB ad UNA sola istanza Postgres. | 1 monorepo, 3 app deployate separatamente, DB unificato |
 | **Stadio 3** (rebranding) | 2-3 sett | Applica branding distinti per app (palette, logo, hostnames). Comunica transition a early adopter BT. | 3 prodotti brandizzati live |
 | **Stadio 4** (bridge) | 2-3 sett | Implementa event bus `@voler/bridge` per flussi inter-prodotto (BT → CT insights, CT ↔ ET DeliveryPack, ET → BT visitor metrics). | Suite integrata funzionante |
 
 **Effort architetturale totale**: 6-9 settimane di refactor dopo i 10-14 della Fase 2.
 
-### 4.6 Migrazione DB di Business Tuner (delicata)
+### 4.7 Migrazione DB di Business Tuner (delicata)
 
 Status: BT in produzione con early adopter (5-15 tenant).
 
@@ -350,7 +366,7 @@ Sotto-progetti (alto livello):
 
 ### Mesi 4-4.75: Stadio 2-3 — Monorepo refactor + Rebranding
 
-**Outcome**: `suite-tuner` monorepo live con 3 app distinte.
+**Outcome**: `studio-tuner` monorepo live con 3 app distinte.
 
 - Creazione monorepo Turborepo
 - Estrazione `packages/@voler/*` da Toolia
