@@ -224,7 +224,7 @@ export interface FamilyModeConfig {
 
 export type SpatialMode = "gps" | "indoor" | "hybrid";
 export type PoiType = "indoor" | "outdoor";
-export type ZoneFunction = "apertura" | "sviluppo" | "climax";
+export type ZoneFunction = "apertura" | "sviluppo" | "climax" | "chiusura";
 
 export interface MapPoi {
   id: string;
@@ -929,14 +929,15 @@ export async function saveBrief(
   }
 }
 
-function normalizeZoneFunction(raw: unknown): ZoneFunction {
+export function normalizeZoneFunction(raw: unknown): ZoneFunction {
   // Migrazione da nomi inglesi/closure vecchi
   const map: Record<string, ZoneFunction> = {
     apertura: "apertura",
     opening: "apertura",
     sviluppo: "sviluppo",
     development: "sviluppo",
-    closure: "sviluppo",
+    chiusura: "chiusura",
+    closure: "chiusura",
     climax: "climax",
   };
   if (typeof raw !== "string") return "sviluppo";

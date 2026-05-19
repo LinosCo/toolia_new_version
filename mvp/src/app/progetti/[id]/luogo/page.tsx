@@ -77,12 +77,14 @@ const ZONE_FUNCTION_LABEL: Record<ZoneFunction, string> = {
   apertura: "Apertura",
   sviluppo: "Sviluppo",
   climax: "Climax",
+  chiusura: "Chiusura",
 };
 
 const ZONE_FUNCTION_HINT: Record<ZoneFunction, string> = {
   apertura: "Prima impressione, orientamento",
   sviluppo: "Cuore della visita",
   climax: "Culmine, punto memorabile",
+  chiusura: "Chiusura emotiva o pratica",
 };
 
 const ZONE_PALETTE = [
