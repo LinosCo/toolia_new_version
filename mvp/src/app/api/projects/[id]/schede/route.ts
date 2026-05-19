@@ -174,29 +174,37 @@ export async function POST(
       if (inCorePath) autoCore = true;
     }
 
-    const scheda = await prisma.scheda.create({
-      data: {
-        projectId: id,
-        poiId,
-        narratorId,
-        language,
-        title: typeof body?.title === "string" ? body.title : "",
-        scriptText,
-        durationEstimateSeconds:
-          typeof body?.durationEstimateSeconds === "number"
-            ? body.durationEstimateSeconds
-            : wordsPerMinute(scriptText),
-        isCore: autoCore,
-        isDeepDive: !!body?.isDeepDive,
-        status: "draft",
-        version: 1,
-        semanticBaseJson:
-          body?.semanticBaseJson && typeof body.semanticBaseJson === "object"
-            ? body.semanticBaseJson
-            : {},
-      },
-      select: SELECT,
-    });
+    let scheda;
+    try {
+      scheda = await prisma.scheda.create({
+        data: {
+          projectId: id,
+          poiId,
+          narratorId,
+          language,
+          title: typeof body?.title === "string" ? body.title : "",
+          scriptText,
+          durationEstimateSeconds:
+            typeof body?.durationEstimateSeconds === "number"
+              ? body.durationEstimateSeconds
+              : wordsPerMinute(scriptText),
+          isCore: autoCore,
+          isDeepDive: !!body?.isDeepDive,
+          status: "draft",
+          version: 1,
+          semanticBaseJson:
+            body?.semanticBaseJson && typeof body.semanticBaseJson === "object"
+              ? body.semanticBaseJson
+              : {},
+        },
+        select: SELECT,
+      });
+    } catch (e: unknown) {
+      if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
+        return NextResponse.json({ error: "already_exists" }, { status: 409 });
+      }
+      throw e;
+    }
     return NextResponse.json({ scheda }, { status: 201 });
   } catch (err) {
     const authRes = handleAuthError(err);
