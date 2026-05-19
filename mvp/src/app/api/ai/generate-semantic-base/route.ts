@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 export const maxDuration = 120;
 
@@ -182,6 +183,15 @@ Genera la base di significato per questo POI.`;
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "generate-semantic-base",
+      provider: provider,
+      model,
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);

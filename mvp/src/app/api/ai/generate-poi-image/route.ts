@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 function buildPrompt(input: {
   style: "illustrazione" | "fotorealistico";
@@ -138,6 +139,16 @@ export async function POST(req: NextRequest) {
         { status: 502 },
       );
     }
+
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "generate-poi-image",
+      provider: "openai",
+      model: usedModel ?? "dall-e-3",
+      inputTokens: 0,
+      outputTokens: 0,
+    });
 
     return NextResponse.json({
       dataUrl: `data:image/png;base64,${b64}`,
