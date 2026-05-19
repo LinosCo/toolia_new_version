@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
 import { logLlmCall } from "@/lib/llm-usage";
+import { prisma } from "@/lib/db";
 
 type Provider = "kimi" | "openai";
 
@@ -10,6 +11,8 @@ interface Body {
   apiKey?: string;
   provider?: Provider;
   language?: string;
+  projectId?: string;
+  lensId?: string | null;
   poi?: {
     id: string;
     name: string;
@@ -119,6 +122,34 @@ export async function POST(req: NextRequest) {
     const language = body.language ?? "it";
     const durationTarget = poi.minStaySeconds ?? 75;
 
+    // Load lens context if lensId provided
+    let lensContext = "";
+    if (body.lensId && body.projectId) {
+      const lens = await prisma.editorialLens.findFirst({
+        where: { id: body.lensId, projectId: body.projectId },
+        include: { primaryDriver: true },
+      });
+      if (lens) {
+        const secondaryDrivers =
+          lens.secondaryDriverIds.length > 0
+            ? await prisma.driver.findMany({
+                where: {
+                  id: { in: lens.secondaryDriverIds },
+                  projectId: body.projectId,
+                },
+              })
+            : [];
+
+        lensContext = `
+
+## Lente editoriale attiva: ${lens.name}
+
+${lens.description ?? ""}${lens.tone ? `\nTono dominante: ${lens.tone}` : ""}${lens.primaryDriver ? `\nDriver principale: ${lens.primaryDriver.name}${lens.primaryDriver.domain ? ` (${lens.primaryDriver.domain})` : ""}\n${lens.primaryDriver.description ?? ""}` : ""}${secondaryDrivers.length > 0 ? `\nDriver secondari: ${secondaryDrivers.map((d) => d.name).join(", ")}` : ""}
+
+REGOLA: scrivi questa scheda ATTRAVERSO questa lente. Il driver principale guida cosa enfatizzare; i driver secondari sono accenti, non protagonisti. Il tono della lente prevale su quello generico del narratore quando entrano in conflitto.`;
+      }
+    }
+
     const user = `Progetto: ${projectName ?? "—"} · lingua: ${language}
 
 POI: ${poi.name}${poi.description ? ` — ${poi.description}` : ""}
@@ -143,7 +174,7 @@ ${brief.avoid?.length ? `- Avoid: ${brief.avoid.join(" / ")}` : ""}
 
 BASE DI SIGNIFICATO (source of truth):
 ${JSON.stringify(semanticBase, null, 2)}
-
+${lensContext}
 Scrivi title + scriptText.`;
 
     const client = buildClient(provider, apiKey);
@@ -162,8 +193,8 @@ Scrivi title + scriptText.`;
     const raw = completion.choices[0]?.message?.content ?? "{}";
     await logLlmCall({
       tenantId,
-      projectId: null,
-      operation: "generate-scheda",
+      projectId: body.projectId ?? null,
+      operation: body.lensId ? "generate-scheda-lens" : "generate-scheda",
       provider: provider,
       model,
       inputTokens: completion.usage?.prompt_tokens ?? 0,
