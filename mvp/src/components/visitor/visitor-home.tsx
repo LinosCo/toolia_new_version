@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Languages, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import type { VisitorData } from "@/lib/visitor-types";
 
 export function VisitorHome({
@@ -90,13 +90,6 @@ export function VisitorHome({
 
         {/* CTA stack bottom */}
         <div className="pb-12 px-6 flex flex-col gap-3">
-          <Link
-            href={`${basePath}/lingua`}
-            className="group inline-flex items-center justify-center gap-2 h-14 rounded-2xl bg-brand text-white text-[15px] font-medium shadow-2xl hover:bg-brand/90 transition-colors"
-          >
-            <Languages className="h-4 w-4" strokeWidth={1.8} />
-            Cambia lingua
-          </Link>
           <Link
             href={`${basePath}/scegli`}
             className="group inline-flex items-center justify-center gap-2 h-14 rounded-2xl bg-white/95 backdrop-blur-sm text-foreground text-[15px] font-medium hover:bg-white transition-colors"
