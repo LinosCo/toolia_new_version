@@ -200,6 +200,7 @@ export async function POST(
           select: {
             id: true,
             poiId: true,
+            lensId: true,
             narratorId: true,
             isCore: true,
             isDeepDive: true,
@@ -211,7 +212,7 @@ export async function POST(
         }),
         prisma.editorialLens.findMany({
           where: { projectId: id },
-          select: { primaryDriverId: true, secondaryDriverIds: true, personaIds: true, tone: true },
+          select: { id: true, name: true, description: true, active: true, primaryDriverId: true, secondaryDriverIds: true, personaIds: true, tone: true },
         }),
         prisma.path.findMany({
           where: { projectId: id, archived: false },
@@ -247,6 +248,47 @@ export async function POST(
     const hasGraph = graphNodes.length > 0 && graphSegments.length > 0;
     const adj = hasGraph ? buildAdjacency(graphSegments) : null;
 
+    // -------------------------------------------------------------------------
+    // Lens selection: pick the best EditorialLens for this visitor
+    // Priority:
+    //   1. Lens whose personaIds includes the visitor's personaId
+    //   2. Lens whose primaryDriverId is among the visitor's chosen driverIds
+    //   3. First active lens
+    //   4. null — no lens filter (backward compat)
+    // -------------------------------------------------------------------------
+    let chosenLens: typeof lenses[number] | null = null;
+
+    if (body.personaId) {
+      chosenLens =
+        lenses.find((l) => l.active && l.personaIds.includes(body.personaId!)) ??
+        null;
+    }
+
+    if (!chosenLens && driverIds.length > 0) {
+      chosenLens =
+        lenses.find(
+          (l) => l.active && l.primaryDriverId != null && driverIds.includes(l.primaryDriverId),
+        ) ?? null;
+    }
+
+    if (!chosenLens) {
+      chosenLens = lenses.find((l) => l.active) ?? null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Re-filter schedePublished by the chosen lens (depth="primary")
+    // If a lens was found, prefer schede with that lensId.
+    // We keep schedePublished as the broader pool for per-POI fallback.
+    // -------------------------------------------------------------------------
+    let schedeForLens = schedePublished;
+    if (chosenLens) {
+      const lensFiltered = schedePublished.filter((s) => s.lensId === chosenLens!.id);
+      // Only apply lens filter if it actually yields schede — otherwise keep all (backward compat)
+      if (lensFiltered.length > 0) {
+        schedeForLens = lensFiltered;
+      }
+    }
+
     // Seleziona narratore: param override > percorso > primo narratore
     let narratorId = body.narratorId ?? null;
     if (!narratorId) {
@@ -264,11 +306,21 @@ export async function POST(
     for (const s of schedePublished) if (s.isCore) coreSet.add(s.poiId);
 
     // Score per ogni POI: usa driver tag dalla semanticBase delle schede pubbl.
+    // Use lens-filtered schede for the primary map; keep all-schede map for fallback.
     const schedeByPoi = new Map<string, typeof schedePublished>();
-    for (const s of schedePublished) {
+    for (const s of schedeForLens) {
       const arr = schedeByPoi.get(s.poiId) ?? [];
       arr.push(s);
       schedeByPoi.set(s.poiId, arr);
+    }
+
+    // Fallback pool (all published schede regardless of lens) — used when a POI
+    // has no scheda in the chosen lens.
+    const allSchedeByPoi = new Map<string, typeof schedePublished>();
+    for (const s of schedePublished) {
+      const arr = allSchedeByPoi.get(s.poiId) ?? [];
+      arr.push(s);
+      allSchedeByPoi.set(s.poiId, arr);
     }
 
     type SemanticBase = {
@@ -294,8 +346,9 @@ export async function POST(
     };
 
     // Filtra solo POI con almeno una scheda pubblicata nella lingua richiesta
+    // Use the broader allSchedeByPoi so POIs with no lens-specific scheda still appear
     const candidates = pois
-      .filter((p) => schedeByPoi.has(p.id))
+      .filter((p) => schedeByPoi.has(p.id) || allSchedeByPoi.has(p.id))
       .map((p) => ({
         poi: p,
         score: poiScore(p.id),
@@ -390,24 +443,34 @@ export async function POST(
 
     // Se ho superato duration includendo tutti i core, ok — i core sono non negoziabili
 
-    // Build response con schede scelte per ogni POI (preferisci narratorId scelto, poi isCore, poi la prima)
+    // Build response con schede scelte per ogni POI
+    // Priority: narrator match > isCore > first
+    // Per-POI fallback: if no scheda in chosen lens, fall back to any published scheda
     const pickScheda = (poiId: string) => {
+      // Try lens-filtered pool first
       const list = schedeByPoi.get(poiId) ?? [];
-      if (list.length === 0) return null;
+      if (list.length > 0) {
+        if (narratorId) {
+          const m = list.find((s) => s.narratorId === narratorId);
+          if (m) return m;
+        }
+        const core = list.find((s) => s.isCore);
+        return core ?? list[0];
+      }
+
+      // Per-POI fallback: no scheda in chosen lens — try all published schede for this POI
+      const fallback = allSchedeByPoi.get(poiId) ?? [];
+      if (fallback.length === 0) return null;
       if (narratorId) {
-        const m = list.find((s) => s.narratorId === narratorId);
+        const m = fallback.find((s) => s.narratorId === narratorId);
         if (m) return m;
       }
-      const core = list.find((s) => s.isCore);
-      return core ?? list[0];
+      const core = fallback.find((s) => s.isCore);
+      return core ?? fallback[0];
     };
 
-    const tone = lenses.find(
-      (l) =>
-        (l.primaryDriverId != null && driverIds.includes(l.primaryDriverId) ||
-          l.secondaryDriverIds.some((did) => driverIds.includes(did))) &&
-        (body.personaId == null || l.personaIds.includes(body.personaId)),
-    )?.tone;
+    // Use tone from the chosen lens (already determined above)
+    const tone = chosenLens?.tone ?? null;
 
     const itinerary = selected.map((c, idx) => {
       const scheda = pickScheda(c.poi.id);
@@ -451,6 +514,13 @@ export async function POST(
         tone: tone ?? null,
         poiCount: itinerary.length,
       },
+      lens: chosenLens
+        ? {
+            id: chosenLens.id,
+            name: chosenLens.name,
+            description: chosenLens.description,
+          }
+        : null,
       itinerary,
     });
   } catch (err) {
