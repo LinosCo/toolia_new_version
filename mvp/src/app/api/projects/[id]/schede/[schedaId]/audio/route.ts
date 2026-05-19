@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError, requireRole } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 export const maxDuration = 120;
 
@@ -136,6 +137,17 @@ export async function POST(
         isStale: true,
         updatedAt: true,
       },
+    });
+
+    await logLlmCall({
+      tenantId: user.tenantId,
+      projectId: id,
+      operation: "tts",
+      provider: "elevenlabs",
+      model: "eleven_multilingual_v2",
+      inputTokens: 0,
+      outputTokens: 0,
+      audioSeconds: durationSeconds,
     });
 
     return NextResponse.json({ audio });
