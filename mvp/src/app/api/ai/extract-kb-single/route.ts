@@ -3,6 +3,8 @@ import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
 
+export const maxDuration = 120;
+
 type Provider = "kimi" | "openai";
 type Category = "solido" | "interpretazione" | "memoria" | "ipotesi";
 type SourceKind = "sito" | "documento" | "intervista" | "planimetria";

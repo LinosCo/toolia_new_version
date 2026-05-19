@@ -3,6 +3,8 @@ import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError, requireRole } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
 
+export const maxDuration = 120;
+
 // Genera audio TTS via ElevenLabs per una scheda.
 // Modello eleven_multilingual_v2 per pronuncia italiana corretta.
 // Audio salvato come dataURL base64 nel campo AudioAsset.fileUrl (sposterà su R2 quando pronto).
