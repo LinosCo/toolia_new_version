@@ -255,179 +255,100 @@ export default function SchedeStepPage({
   };
 
   const bulkGenerateAll = async () => {
-    if (!hasLlmKey || !activeProvider || !keys) return;
     if (pois.length === 0 || narrators.length === 0) return;
     if (
       !window.confirm(
-        `Generare base + schede per tutti i ${pois.length} POI × ${narrators.length} narratori e pubblicarle? (solo testi, niente audio)`,
+        `Generare base + schede per tutti i ${pois.length} POI × ${narrators.length} narratori? (solo testi, niente audio)`,
       )
     )
       return;
+
     setBulkRunning(true);
-    setBulkProgress("Genero basi di significato…");
+    setBulkProgress("Avvio generazione…");
+
     try {
-      // 1. Basi semantiche mancanti per ogni POI
-      const bases: Map<string, Record<string, unknown>> = new Map();
-      await Promise.all(
-        pois.map(async (poi) => {
-          const baseRes = await fetch(
-            `/api/projects/${projectId}/pois/${poi.id}/semantic-base`,
-            { cache: "no-store" },
-          );
-          const baseJson = baseRes.ok ? await baseRes.json() : null;
-          let sb = baseJson?.semanticBase ?? {};
-          if (Object.keys(sb).length === 0) {
-            const relevantFacts = kb.facts
-              .filter((f) => f.approved)
-              .slice(0, 60);
-            const r = await fetch("/api/ai/generate-semantic-base", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                apiKey: keys.llm[activeProvider],
-                provider: activeProvider,
-                projectName: project?.name,
-                poi: {
-                  id: poi.id,
-                  name: poi.name,
-                  description: poi.description,
-                  type: poi.type,
-                  zoneId: poi.zoneId,
-                },
-                brief: brief
-                  ? {
-                      obiettivo: brief.obiettivo,
-                      promessaNarrativa: brief.promessaNarrativa,
-                      tono: brief.tono,
-                      tipoEsperienza: brief.tipoEsperienza,
-                      mustTell: brief.mustTell,
-                      avoid: brief.avoid,
-                      verify: brief.verify,
-                    }
-                  : undefined,
-                drivers: drivers?.drivers.map((d) => ({
-                  id: d.id,
-                  name: d.name,
-                  domain: d.domain,
-                })),
-                kbFacts: relevantFacts.map((f) => ({
-                  content: f.content,
-                  category: f.category,
-                  importance: f.importance,
-                  reliability: f.reliability,
-                  poiRef: f.poiRef ?? null,
-                })),
-                visitorQuestions: brief?.visitorQuestions,
-              }),
-            });
-            const data = await r.json();
-            if (r.ok && data.semanticBase) {
-              sb = data.semanticBase;
-              await fetch(
-                `/api/projects/${projectId}/pois/${poi.id}/semantic-base`,
-                {
-                  method: "PUT",
-                  headers: { "content-type": "application/json" },
-                  body: JSON.stringify(sb),
-                },
-              );
-            }
-          }
-          bases.set(poi.id, sb);
-        }),
-      );
-
-      setBulkProgress("Genero schede per ogni narratore…");
-      // 2. Schede per ogni POI × narratore mancante
-      const existing = new Set(
-        schede.map((s) => `${s.poiId}:${s.narratorId}:${s.language}`),
-      );
-      await Promise.all(
-        pois.flatMap((poi) =>
-          narrators.map(async (n) => {
-            const key = `${poi.id}:${n.id}:it`;
-            if (existing.has(key)) return;
-            const sb = bases.get(poi.id) ?? {};
-            if (Object.keys(sb).length === 0) return;
-            const r = await fetch("/api/ai/generate-scheda", {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                apiKey: keys.llm[activeProvider],
-                provider: activeProvider,
-                language: "it",
-                projectName: project?.name,
-                poi: {
-                  id: poi.id,
-                  name: poi.name,
-                  description: poi.description,
-                  minStaySeconds: poi.minStaySeconds,
-                },
-                narrator: {
-                  id: n.id,
-                  name: n.name,
-                  kind: n.kind,
-                  voiceStyle: n.voiceStyle,
-                  characterBio: n.characterBio ?? "",
-                  characterContractJson: n.characterContractJson,
-                },
-                semanticBase: sb,
-                brief: brief
-                  ? {
-                      obiettivo: brief.obiettivo,
-                      promessaNarrativa: brief.promessaNarrativa,
-                      tono: brief.tono,
-                      tipoEsperienza: brief.tipoEsperienza,
-                      mustTell: brief.mustTell,
-                      avoid: brief.avoid,
-                    }
-                  : undefined,
-              }),
-            });
-            const data = await r.json();
-            if (!r.ok) return;
-            await fetch(`/api/projects/${projectId}/schede`, {
-              method: "POST",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({
-                poiId: poi.id,
-                narratorId: n.id,
-                language: "it",
-                title: data.title,
-                scriptText: data.scriptText,
-                semanticBaseJson: sb,
-              }),
-            });
+      const res = await fetch(
+        `/api/projects/${projectId}/schede/bulk-generate`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            poiIds: pois.map((p) => p.id),
+            narratorIds: narrators.map((n) => n.id),
+            language: "it",
           }),
-        ),
+        },
       );
 
-      setBulkProgress("Pubblicazione…");
-      await reloadAll();
-      // Ricarico per prendere gli id freschi
-      const freshRes = await fetch(`/api/projects/${projectId}/schede`, {
-        cache: "no-store",
-      });
-      const fresh = freshRes.ok ? (await freshRes.json()).schede : [];
-      await Promise.all(
-        (fresh as Scheda[])
-          .filter((s) => s.status !== "published")
-          .map((s) =>
-            fetch(`/api/projects/${projectId}/schede/${s.id}`, {
-              method: "PATCH",
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify({ status: "published" }),
-            }),
-          ),
-      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        if (err?.error === "missing_api_key") {
+          setBulkProgress("Configura una chiave LLM in Impostazioni.");
+        } else {
+          setBulkProgress(`Errore: ${res.status}`);
+        }
+        return;
+      }
 
-      setBulkProgress("Fatto!");
+      if (!res.body) {
+        setBulkProgress("Nessuna risposta dal server.");
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() ?? "";
+        for (const ev of events) {
+          if (!ev.startsWith("data: ")) continue;
+          try {
+            const data = JSON.parse(ev.slice(6)) as {
+              type: string;
+              step?: string;
+              completed?: number;
+              total?: number;
+              semanticBaseCount?: number;
+              schedaCount?: number;
+              errors?: number;
+              poiId?: string;
+              error?: string;
+            };
+            if (data.type === "started") {
+              setBulkProgress(`Inizio (${data.total ?? "?"} passi)`);
+            } else if (data.type === "progress") {
+              const phase =
+                data.step === "semantic_base" ? "Basi" : "Schede";
+              setBulkProgress(
+                `${phase}: ${data.completed ?? 0}/${data.total ?? "?"}`,
+              );
+            } else if (data.type === "done") {
+              setBulkProgress(
+                `Completato: ${data.semanticBaseCount ?? 0} basi + ${data.schedaCount ?? 0} schede${data.errors ? ` (${data.errors} errori)` : ""}`,
+              );
+            } else if (data.type === "error") {
+              console.warn("[bulk-generate] errore su", data.poiId, data.error);
+            }
+          } catch {
+            console.warn("[bulk-generate] SSE parse error:", ev);
+          }
+        }
+      }
+
       await reloadAll();
+    } catch (e) {
+      console.error("[bulk-generate]", e);
+      setBulkProgress("Errore nella generazione.");
     } finally {
       setTimeout(() => {
         setBulkRunning(false);
         setBulkProgress("");
-      }, 1500);
+      }, 3000);
     }
   };
 
@@ -478,7 +399,7 @@ export default function SchedeStepPage({
       )}
 
       {/* Bulk test action */}
-      {hasLlmKey && pois.length > 0 && narrators.length > 0 && (
+      {pois.length > 0 && narrators.length > 0 && (
         <div className="mb-6 rounded-xl border border-border bg-muted/20 p-4 flex items-center justify-between gap-3 flex-wrap">
           <div>
             <p className="text-sm font-medium">Test rapido</p>
