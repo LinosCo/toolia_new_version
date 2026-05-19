@@ -43,6 +43,7 @@ const ROUTES = [
   "propose-luogo",
   "propose-narrators",
   "propose-paths",
+  "propose-tension-map",
   "suggest-zones",
 ];
 
