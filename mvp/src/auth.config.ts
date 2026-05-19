@@ -22,7 +22,10 @@ export const authConfig = {
   callbacks: {
     authorized({ auth, request }) {
       // Bypass totale in dev: nessun redirect a signin.
-      if (process.env.DEV_BYPASS_AUTH === "true") return true;
+      if (
+        process.env.NODE_ENV !== "production" &&
+        process.env.DEV_BYPASS_AUTH === "true"
+      ) return true;
       const { pathname } = request.nextUrl;
       if (PUBLIC_PATHS.some((p) => pathname.startsWith(p))) return true;
       if (PUBLIC_API_PATTERNS.some((p) => p.test(pathname))) return true;

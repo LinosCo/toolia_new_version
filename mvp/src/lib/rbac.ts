@@ -45,7 +45,10 @@ async function getDevBypassUser(): Promise<SessionUser> {
 }
 
 export async function getSessionUser(): Promise<SessionUser> {
-  if (process.env.DEV_BYPASS_AUTH === "true") {
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.DEV_BYPASS_AUTH === "true"
+  ) {
     return getDevBypassUser();
   }
   const session = await auth();
