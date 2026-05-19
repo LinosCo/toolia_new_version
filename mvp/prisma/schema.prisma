@@ -531,6 +531,7 @@ model FamilyMission {
   project         Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
   poiId           String
   poi             POI                @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  status          SchedaStatus       @default(draft)
   missionType     FamilyMissionType  @default(poi_observation)
   kidMissionBrief String             @db.Text
   clue            String?            @db.Text

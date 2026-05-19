@@ -151,7 +151,7 @@ export async function GET(
           },
         }),
         prisma.familyMission.findMany({
-          where: { projectId: id },
+          where: { projectId: id, status: "published" },
           select: {
             id: true,
             poiId: true,
