@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey } from "@/lib/tenant-keys";
 
 const SYSTEM = `Sei un esperto di identificazione architettonica. Ricevi una foto di un luogo culturale e una lista di punti di interesse (POI) con nome e descrizione. Devi dire a quale POI la foto corrisponde, oppure se non corrisponde a nessuno.
 Se la foto è un dettaglio stretto (es. un affresco, un oggetto) classificala come "riferimento-ai" invece che "foto-poi".`;
@@ -27,9 +29,24 @@ Regole:
 - "poiN": null solo se la foto davvero non corrisponde a nulla (es. foto di una persona, una brochure, un edificio diverso)`;
 
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
+  try {
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
   try {
     const body = await req.json();
-    const { apiKey, imageDataUrl, pois } = body;
+    const { apiKey: bodyApiKey, imageDataUrl, pois } = body;
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, "openai");
+    const apiKey = serverKey ?? bodyApiKey;
 
     if (!apiKey) {
       return NextResponse.json(
