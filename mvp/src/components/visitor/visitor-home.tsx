@@ -88,11 +88,12 @@ export function VisitorHome({
           </p>
         </div>
 
-        {/* CTA stack bottom */}
-        <div className="pb-12 px-6 flex flex-col gap-3">
+        {/* CTA: 'Cambia lingua' rimosso, feature multilingua non ancora attiva.
+            'Inizia visita' è ora la CTA primaria. */}
+        <div className="pb-12 px-6">
           <Link
             href={`${basePath}/scegli`}
-            className="group inline-flex items-center justify-center gap-2 h-14 rounded-2xl bg-white/95 backdrop-blur-sm text-foreground text-[15px] font-medium hover:bg-white transition-colors"
+            className="group inline-flex w-full items-center justify-center gap-2 h-14 rounded-2xl bg-brand text-white text-[15px] font-medium shadow-2xl hover:bg-brand/90 transition-colors"
           >
             Inizia visita
             <ArrowRight

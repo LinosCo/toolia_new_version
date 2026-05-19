@@ -32,10 +32,19 @@ export async function GET(
         address: true,
         city: true,
         settingsJson: true,
+        tenantId: true,
       },
     });
     if (!project)
       return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+    // Owner view = editor del proprio tenant: vede anche schede in bozza, così
+    // la preview Studio mostra tutto come sarà dopo la pubblicazione.
+    // Tutti gli altri (visitatore pubblico) vedono solo schede published.
+    const isOwnerView = !!user && project.tenantId === user.tenantId;
+    const schedaWhere = isOwnerView
+      ? { projectId: id }
+      : { projectId: id, status: "published" };
 
     const [pois, narrators, paths, schede, drivers, personas, qa, missions] =
       await Promise.all([
@@ -96,7 +105,7 @@ export async function GET(
           },
         }),
         prisma.scheda.findMany({
-          where: { projectId: id, status: "published" },
+          where: schedaWhere,
           select: {
             id: true,
             poiId: true,

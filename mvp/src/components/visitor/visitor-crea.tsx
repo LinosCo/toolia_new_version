@@ -151,7 +151,8 @@ export function VisitorCrea({
         );
       }
       router.push(`${basePath}/visita?compose=1`);
-    } catch {
+    } catch (err) {
+      console.error("[compose-visit] unexpected error", err);
       setError("Errore di connessione.");
       setComposing(false);
     }
