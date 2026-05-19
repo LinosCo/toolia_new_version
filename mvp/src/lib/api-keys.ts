@@ -1,3 +1,21 @@
+/**
+ * @deprecated localStorage-based API keys. Use /api/tenant/api-keys (server-side) instead.
+ *
+ * Remaining callers that must be migrated in Fase 1:
+ *   - src/app/progetti/[id]/fonti/page.tsx
+ *   - src/app/progetti/[id]/luogo/page.tsx
+ *   - src/app/progetti/[id]/driver/page.tsx
+ *   - src/app/progetti/[id]/percorsi/page.tsx
+ *   - src/app/progetti/[id]/brief/page.tsx
+ *   - src/app/progetti/[id]/schede/page.tsx
+ *   - src/app/progetti/nuovo/page.tsx
+ *   - src/components/maps-preview.tsx
+ *   - src/components/visitor/preview-map.tsx
+ *   - src/lib/project-store.ts
+ *
+ * Will be removed once all callers pass body.apiKey via the server-side tenant key
+ * (already supported as fallback in all 17 AI routes + TTS).
+ */
 export type LlmProvider = "kimi" | "openai" | "anthropic" | "gemini";
 export type ServiceKey = "elevenlabs" | "googleMaps";
 
