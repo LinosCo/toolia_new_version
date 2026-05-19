@@ -187,10 +187,10 @@ ai-interviewer/     (repo separato)
 
 **Problema**: 2 repo, 2 schema Prisma, 2 auth systems, codice duplicato (auth helpers, AI clients, UI components).
 
-### 4.2 Stato target — Monorepo `voler-platform`
+### 4.2 Stato target — Monorepo `suite-tuner`
 
 ```
-voler-platform/
+suite-tuner/
 ├── apps/
 │   ├── business-tuner/           # Frontend BT
 │   ├── content-tuner/            # Frontend CT (= ex Toolia Studio admin)
@@ -233,7 +233,7 @@ Schema unificato con discriminator per app:
 | Stadio | Durata | Cosa | Risultato |
 |---|---|---|---|
 | **Stadio 1** (now) | 10-14 sett | Fase 2 di Toolia: costruisci Content Engine + media preservation completi NEL repo Toolia attuale. Organizza codice in moduli logici (`lib/content-engine`, `lib/media-pipeline`, `lib/brand-voice`) | Content engine maturo, pronto per estrazione |
-| **Stadio 2** (refactor) | 2-3 sett | Crea `voler-platform` monorepo, sposta `lib/*` di Toolia in `packages/@voler/*`, sposta UI Studio in `apps/content-tuner`, UI visitor in `apps/experience-tuner`. Migra anche BT in `apps/business-tuner` con migrazione DB ad UNA sola istanza Postgres. | 1 monorepo, 3 app deployate separatamente, DB unificato |
+| **Stadio 2** (refactor) | 2-3 sett | Crea `suite-tuner` monorepo, sposta `lib/*` di Toolia in `packages/@voler/*`, sposta UI Studio in `apps/content-tuner`, UI visitor in `apps/experience-tuner`. Migra anche BT in `apps/business-tuner` con migrazione DB ad UNA sola istanza Postgres. | 1 monorepo, 3 app deployate separatamente, DB unificato |
 | **Stadio 3** (rebranding) | 2-3 sett | Applica branding distinti per app (palette, logo, hostnames). Comunica transition a early adopter BT. | 3 prodotti brandizzati live |
 | **Stadio 4** (bridge) | 2-3 sett | Implementa event bus `@voler/bridge` per flussi inter-prodotto (BT → CT insights, CT ↔ ET DeliveryPack, ET → BT visitor metrics). | Suite integrata funzionante |
 
@@ -350,7 +350,7 @@ Sotto-progetti (alto livello):
 
 ### Mesi 4-4.75: Stadio 2-3 — Monorepo refactor + Rebranding
 
-**Outcome**: `voler-platform` monorepo live con 3 app distinte.
+**Outcome**: `suite-tuner` monorepo live con 3 app distinte.
 
 - Creazione monorepo Turborepo
 - Estrazione `packages/@voler/*` da Toolia
