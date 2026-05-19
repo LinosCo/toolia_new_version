@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import useSWR from "swr";
 import {
   Building2,
   KeyRound,
@@ -14,6 +15,9 @@ import {
   Sparkles,
   Volume2,
   Map as MapIcon,
+  Server,
+  AlertTriangle,
+  Trash2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -39,6 +43,18 @@ import {
   type ServiceKey,
 } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
+
+type TenantApiProvider = "openai" | "anthropic" | "kimi" | "elevenlabs" | "googleMaps";
+
+const PROVIDER_META: Record<TenantApiProvider, { label: string; placeholder: string; docsUrl: string; icon: React.ComponentType<{ className?: string; strokeWidth?: number }> }> = {
+  openai: { label: "OpenAI", placeholder: "sk-proj-...", docsUrl: "platform.openai.com", icon: Sparkles },
+  anthropic: { label: "Anthropic Claude", placeholder: "sk-ant-...", docsUrl: "console.anthropic.com", icon: Sparkles },
+  kimi: { label: "Kimi (Moonshot)", placeholder: "sk-...", docsUrl: "platform.moonshot.ai", icon: Sparkles },
+  elevenlabs: { label: "ElevenLabs", placeholder: "sk_eleven_...", docsUrl: "elevenlabs.io", icon: Volume2 },
+  googleMaps: { label: "Google Maps", placeholder: "AIza...", docsUrl: "console.cloud.google.com", icon: MapIcon },
+};
+
+const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 const sections = [
   { id: "profilo", label: "Profilo", icon: User },
@@ -302,10 +318,20 @@ function ApiKeysSection() {
         id="api"
         kicker="03"
         title="Chiavi API"
-        description="I servizi AI usati da Toolia Studio. Scegli il modello per i contenuti, poi configura voce e mappe."
+        description="I servizi AI usati da Toolia Studio. Le chiavi sono ora salvate sul server in modo sicuro."
       />
 
-      <div className="space-y-4">
+      {/* Server-side API keys — new secure method */}
+      <ServerApiKeysSection />
+
+      {/* Legacy localStorage section — deprecated */}
+      <div className="space-y-3">
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200/60 bg-amber-50/40 dark:border-amber-800/40 dark:bg-amber-950/20 px-4 py-3">
+          <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" strokeWidth={1.8} />
+          <p className="text-xs text-amber-700 dark:text-amber-300 leading-relaxed">
+            <span className="font-medium">Sezione deprecata.</span> Le chiavi qui sotto sono salvate nel browser (localStorage) e verranno rimosse nella prossima versione. Usa la sezione &quot;Chiavi server-side&quot; sopra.
+          </p>
+        </div>
         <LlmProviderCard />
         <ApiKeyCard
           name="ElevenLabs"
@@ -325,6 +351,178 @@ function ApiKeysSection() {
         />
       </div>
     </section>
+  );
+}
+
+function ServerApiKeysSection() {
+  const { data, mutate, isLoading } = useSWR<{
+    keys: Array<{ provider: TenantApiProvider; configured: boolean }>;
+  }>("/api/tenant/api-keys", fetcher);
+
+  const [editing, setEditing] = useState<TenantApiProvider | null>(null);
+  const [value, setValue] = useState("");
+  const [show, setShow] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedFlash, setSavedFlash] = useState<TenantApiProvider | null>(null);
+
+  async function save(provider: TenantApiProvider) {
+    if (!value.trim()) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/tenant/api-keys", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, value: value.trim() }),
+      });
+      if (res.ok) {
+        setEditing(null);
+        setValue("");
+        setShow(false);
+        setSavedFlash(provider);
+        setTimeout(() => setSavedFlash(null), 1800);
+        await mutate();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(provider: TenantApiProvider) {
+    if (!confirm(`Rimuovere la chiave ${PROVIDER_META[provider].label}?`)) return;
+    await fetch(`/api/tenant/api-keys?provider=${provider}`, { method: "DELETE" });
+    await mutate();
+  }
+
+  return (
+    <Card>
+      <div className="flex items-start gap-4 mb-6">
+        <div className="h-11 w-11 rounded-xl bg-brand/10 flex items-center justify-center shrink-0">
+          <Server className="h-5 w-5 text-brand" strokeWidth={1.6} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-base font-medium">Chiavi server-side</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Archiviate in modo sicuro nel database — non nel browser
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="text-sm text-muted-foreground py-4">Caricamento...</div>
+      ) : !data ? (
+        <div className="text-sm text-muted-foreground py-4">Errore caricamento chiavi. Riprova.</div>
+      ) : (
+        <ul className="divide-y divide-border/60 -my-1">
+          {data.keys.map((k) => {
+            const meta = PROVIDER_META[k.provider];
+            const ProviderIcon = meta.icon;
+            const isEditing = editing === k.provider;
+            const wasSaved = savedFlash === k.provider;
+
+            return (
+              <li key={k.provider} className="py-4 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                    <ProviderIcon className="h-4 w-4 text-foreground" strokeWidth={1.6} />
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-medium">{meta.label}</span>
+                      {k.configured && !isEditing && (
+                        <span className={cn(
+                          "inline-flex items-center gap-1 text-[10px] uppercase tracking-[0.14em] px-2 py-0.5 rounded-full transition-colors",
+                          wasSaved
+                            ? "bg-brand text-white"
+                            : "bg-brand/10 text-brand"
+                        )}>
+                          <Check className="h-3 w-3" strokeWidth={2.5} />
+                          {wasSaved ? "Salvata" : "Configurata"}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{meta.docsUrl}</p>
+                  </div>
+
+                  {/* Actions */}
+                  {isEditing ? (
+                    <div className="flex items-center gap-2 w-full mt-2 sm:w-auto sm:mt-0">
+                      <div className="relative flex-1 min-w-0 sm:w-64">
+                        <Input
+                          type={show ? "text" : "password"}
+                          value={value}
+                          onChange={(e) => setValue(e.target.value)}
+                          placeholder={meta.placeholder}
+                          className="h-9 pr-10 font-mono text-xs"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") save(k.provider);
+                            if (e.key === "Escape") { setEditing(null); setValue(""); }
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShow((s) => !s)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          aria-label={show ? "Nascondi" : "Mostra"}
+                        >
+                          {show ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </button>
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-9 text-xs rounded-lg"
+                        onClick={() => save(k.provider)}
+                        disabled={saving || !value.trim()}
+                      >
+                        {saving ? "..." : "Salva"}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 text-xs rounded-lg"
+                        onClick={() => { setEditing(null); setValue(""); setShow(false); }}
+                      >
+                        Annulla
+                      </Button>
+                    </div>
+                  ) : k.configured ? (
+                    <div className="flex items-center gap-1.5">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 text-xs rounded-lg"
+                        onClick={() => { setEditing(k.provider); setValue(""); }}
+                      >
+                        Aggiorna
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 rounded-lg text-muted-foreground hover:text-destructive"
+                        onClick={() => remove(k.provider)}
+                        aria-label={`Rimuovi chiave ${meta.label}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-8 text-xs rounded-lg"
+                      onClick={() => { setEditing(k.provider); setValue(""); }}
+                    >
+                      Configura
+                    </Button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }
 
