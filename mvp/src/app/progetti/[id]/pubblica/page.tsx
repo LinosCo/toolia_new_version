@@ -2,6 +2,8 @@
 
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import useSWR from "swr";
+import { useSession } from "next-auth/react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -82,6 +84,35 @@ const AUTO_LABELS: Record<keyof Checklist["auto"], string> = {
   audio_coverage: "Copertura audio ≥ 80%",
   no_blockers: "Nessun problema bloccante",
 };
+
+function AiCostWidget({ projectId }: { projectId: string }) {
+  const { data: session } = useSession();
+  const user = session?.user as { role?: string } | undefined;
+  const isAdmin = user?.role === "Admin";
+  const { data: usage } = useSWR<{ totalUsd: number }>(
+    isAdmin ? `/api/tenant/usage?projectId=${projectId}` : null,
+    (url: string) => fetch(url).then((r) => r.json()),
+  );
+
+  if (!isAdmin) return null;
+
+  return (
+    <div className="rounded-2xl border border-border/70 bg-card p-5">
+      <p className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground mb-2">
+        Costo AI cumulativo
+      </p>
+      <p className="font-heading italic text-3xl tabular-nums leading-none">
+        {usage ? `$${usage.totalUsd.toFixed(2)}` : "..."}
+      </p>
+      <a
+        href="/impostazioni/consumo"
+        className="text-[11px] text-muted-foreground hover:underline mt-2 inline-block"
+      >
+        Dettagli →
+      </a>
+    </div>
+  );
+}
 
 export default function PubblicaPage({
   params,
@@ -369,6 +400,7 @@ export default function PubblicaPage({
             }
             sub={`${data.metrics.schedeDraft} bozze`}
           />
+          <AiCostWidget projectId={id} />
         </div>
       </section>
 
