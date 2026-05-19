@@ -2,6 +2,116 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 
+// ---------------------------------------------------------------------------
+// Graph helpers (scoped to this route)
+// ---------------------------------------------------------------------------
+
+interface GraphEdge {
+  toNodeId: string;
+  weightSec: number;
+}
+
+function buildAdjacency(
+  segments: Array<{
+    fromNodeId: string;
+    toNodeId: string;
+    traversalSec: number | null;
+    bidirectional: boolean;
+  }>,
+): Map<string, GraphEdge[]> {
+  const adj = new Map<string, GraphEdge[]>();
+  for (const s of segments) {
+    const w = s.traversalSec ?? 60; // default 60s if missing
+    const forward: GraphEdge = { toNodeId: s.toNodeId, weightSec: w };
+    if (!adj.has(s.fromNodeId)) adj.set(s.fromNodeId, []);
+    adj.get(s.fromNodeId)!.push(forward);
+    if (s.bidirectional) {
+      const reverse: GraphEdge = { toNodeId: s.fromNodeId, weightSec: w };
+      if (!adj.has(s.toNodeId)) adj.set(s.toNodeId, []);
+      adj.get(s.toNodeId)!.push(reverse);
+    }
+  }
+  return adj;
+}
+
+/**
+ * Dijkstra shortest path by weightSec. Returns Infinity if unreachable.
+ * Uses a sorted array — fine for small graphs (<100 nodes).
+ */
+function shortestPathSec(
+  adj: Map<string, GraphEdge[]>,
+  startNodeId: string,
+  endNodeId: string,
+): number {
+  if (startNodeId === endNodeId) return 0;
+  const dist = new Map<string, number>();
+  dist.set(startNodeId, 0);
+  const queue: Array<{ id: string; d: number }> = [{ id: startNodeId, d: 0 }];
+  while (queue.length > 0) {
+    queue.sort((a, b) => a.d - b.d);
+    const current = queue.shift()!;
+    if (current.id === endNodeId) return current.d;
+    if (current.d > (dist.get(current.id) ?? Infinity)) continue;
+    for (const e of adj.get(current.id) ?? []) {
+      const newDist = current.d + e.weightSec;
+      if (newDist < (dist.get(e.toNodeId) ?? Infinity)) {
+        dist.set(e.toNodeId, newDist);
+        queue.push({ id: e.toNodeId, d: newDist });
+      }
+    }
+  }
+  return Infinity;
+}
+
+/**
+ * Returns the id of the node spatially closest to the given POI coords.
+ * Prefers planimetria coords; falls back to lat/lng.
+ */
+function findNearestNodeId(
+  nodes: Array<{
+    id: string;
+    lat: number | null;
+    lng: number | null;
+    planimetriaX: number | null;
+    planimetriaY: number | null;
+  }>,
+  poi: {
+    lat: number | null;
+    lng: number | null;
+    planimetriaX: number | null;
+    planimetriaY: number | null;
+  },
+): string | null {
+  if (nodes.length === 0) return null;
+  let best: { id: string; d: number } | null = null;
+  for (const n of nodes) {
+    let d = Infinity;
+    if (
+      poi.planimetriaX != null &&
+      poi.planimetriaY != null &&
+      n.planimetriaX != null &&
+      n.planimetriaY != null
+    ) {
+      const dx = poi.planimetriaX - n.planimetriaX;
+      const dy = poi.planimetriaY - n.planimetriaY;
+      d = Math.sqrt(dx * dx + dy * dy);
+    } else if (
+      poi.lat != null &&
+      poi.lng != null &&
+      n.lat != null &&
+      n.lng != null
+    ) {
+      const dx = poi.lat - n.lat;
+      const dy = poi.lng - n.lng;
+      d = Math.sqrt(dx * dx + dy * dy);
+    }
+    if (best === null || d < best.d) best = { id: n.id, d };
+  }
+  return best?.id ?? null;
+}
+
+// ---------------------------------------------------------------------------
+
 interface ComposeBody {
   driverIds?: string[];
   personaId?: string | null;
@@ -60,55 +170,82 @@ export async function POST(
       return driverWeightMap.get(did) ?? 0;
     };
 
-    // Carica POI + schede pubblicate + lenti editoriali per scoring
-    const [pois, schedePublished, lenses, paths] = await Promise.all([
-      prisma.pOI.findMany({
-        where: { projectId: id },
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          imageUrl: true,
-          lat: true,
-          lng: true,
-          minStaySeconds: true,
-          orderIndex: true,
-          zone: {
-            select: { id: true, function: true, order: true, name: true },
+    // Carica POI + schede pubblicate + lenti editoriali + segment graph per scoring
+    const [pois, schedePublished, lenses, paths, graphNodes, graphSegments] =
+      await Promise.all([
+        prisma.pOI.findMany({
+          where: { projectId: id },
+          select: {
+            id: true,
+            name: true,
+            description: true,
+            imageUrl: true,
+            lat: true,
+            lng: true,
+            planimetriaX: true,
+            planimetriaY: true,
+            nodeId: true,
+            minStaySeconds: true,
+            orderIndex: true,
+            zone: {
+              select: { id: true, function: true, order: true, name: true },
+            },
           },
-        },
-        orderBy: { orderIndex: "asc" },
-      }),
-      prisma.scheda.findMany({
-        where: isOwnerView
-          ? { projectId: id, language }
-          : { projectId: id, status: "published", language },
-        select: {
-          id: true,
-          poiId: true,
-          narratorId: true,
-          isCore: true,
-          isDeepDive: true,
-          durationEstimateSeconds: true,
-          title: true,
-          semanticBaseJson: true,
-          audio: { select: { fileUrl: true, durationSeconds: true } },
-        },
-      }),
-      prisma.editorialLens.findMany({
-        where: { projectId: id },
-        select: { driverId: true, personaId: true, tone: true },
-      }),
-      prisma.path.findMany({
-        where: { projectId: id, archived: false },
-        select: {
-          id: true,
-          narratorId: true,
-          poiOrderJson: true,
-          corePoiIds: true,
-        },
-      }),
-    ]);
+          orderBy: { orderIndex: "asc" },
+        }),
+        prisma.scheda.findMany({
+          where: isOwnerView
+            ? { projectId: id, language }
+            : { projectId: id, status: "published", language },
+          select: {
+            id: true,
+            poiId: true,
+            narratorId: true,
+            isCore: true,
+            isDeepDive: true,
+            durationEstimateSeconds: true,
+            title: true,
+            semanticBaseJson: true,
+            audio: { select: { fileUrl: true, durationSeconds: true } },
+          },
+        }),
+        prisma.editorialLens.findMany({
+          where: { projectId: id },
+          select: { driverId: true, personaId: true, tone: true },
+        }),
+        prisma.path.findMany({
+          where: { projectId: id, archived: false },
+          select: {
+            id: true,
+            narratorId: true,
+            poiOrderJson: true,
+            corePoiIds: true,
+          },
+        }),
+        prisma.mapNode.findMany({
+          where: { projectId: id },
+          select: {
+            id: true,
+            lat: true,
+            lng: true,
+            planimetriaX: true,
+            planimetriaY: true,
+          },
+        }),
+        prisma.segment.findMany({
+          where: { projectId: id },
+          select: {
+            fromNodeId: true,
+            toNodeId: true,
+            traversalSec: true,
+            bidirectional: true,
+          },
+        }),
+      ]);
+
+    // Build segment graph if data available
+    const hasGraph = graphNodes.length > 0 && graphSegments.length > 0;
+    const adj = hasGraph ? buildAdjacency(graphSegments) : null;
 
     // Seleziona narratore: param override > percorso > primo narratore
     let narratorId = body.narratorId ?? null;
@@ -190,14 +327,35 @@ export async function POST(
       return candidates.find((c) => c.poi.id === poiId)?.stay ?? 60;
     };
 
+    // Helper: resolve effective graph nodeId for a POI (explicit nodeId or nearest by coords)
+    const resolveNodeId = (poi: (typeof candidates)[number]["poi"]): string | null => {
+      if (poi.nodeId) return poi.nodeId;
+      if (!hasGraph) return null;
+      return findNearestNodeId(graphNodes, poi);
+    };
+
+    // Helper: compute travel seconds between two consecutive POIs (best-effort)
+    const travelBetween = (
+      fromPoi: (typeof candidates)[number]["poi"],
+      toPoi: (typeof candidates)[number]["poi"],
+    ): number => {
+      if (!hasGraph || !adj) return 60; // fallback: 60s default travel
+      const fromNode = resolveNodeId(fromPoi);
+      const toNode = resolveNodeId(toPoi);
+      if (!fromNode || !toNode) return 60;
+      const sec = shortestPathSec(adj, fromNode, toNode);
+      return sec === Infinity ? 0 : sec; // unreachable: treat as 0 (graceful fallback)
+    };
+
     // Prima includi tutti i core in ordine narrativo
     const selected: typeof candidates = [];
     let totalSec = 0;
     for (const c of candidates) {
       if (!c.isCore) continue;
       const d = poiDuration(c.poi.id);
+      const travel = selected.length > 0 ? travelBetween(selected[selected.length - 1].poi, c.poi) : 0;
       selected.push(c);
-      totalSec += d;
+      totalSec += travel + d;
     }
 
     // Poi riempi con non-core in ordine di score (desc), fino a budget
@@ -206,9 +364,11 @@ export async function POST(
       .sort((a, b) => b.score - a.score);
     for (const c of nonCore) {
       const d = poiDuration(c.poi.id);
-      if (totalSec + d > durationSeconds) continue;
+      // Estimate travel from last selected POI (before final reorder)
+      const travel = selected.length > 0 ? travelBetween(selected[selected.length - 1].poi, c.poi) : 0;
+      if (totalSec + travel + d > durationSeconds) continue;
       selected.push(c);
-      totalSec += d;
+      totalSec += travel + d;
     }
 
     // Riordina selezionati in ordine narrativo
@@ -218,6 +378,15 @@ export async function POST(
       if (za !== zb) return za - zb;
       return a.poi.orderIndex - b.poi.orderIndex;
     });
+
+    // Recompute totalSec in final narrative order (graph-aware travel between consecutive POIs)
+    totalSec = 0;
+    for (let i = 0; i < selected.length; i++) {
+      if (i > 0) {
+        totalSec += travelBetween(selected[i - 1].poi, selected[i].poi);
+      }
+      totalSec += poiDuration(selected[i].poi.id);
+    }
 
     // Se ho superato duration includendo tutti i core, ok — i core sono non negoziabili
 
