@@ -212,7 +212,7 @@ export async function POST(
         },
       }),
       prisma.narratorProfile.findMany({
-        where: { projectId: id, id: { in: body.narratorIds } },
+        where: { projectId: id, archived: false, id: { in: body.narratorIds } },
         select: {
           id: true,
           name: true,

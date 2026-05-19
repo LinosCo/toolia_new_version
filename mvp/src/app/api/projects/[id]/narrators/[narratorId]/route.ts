@@ -27,7 +27,7 @@ async function assertOwnership(
   tenantId: string,
 ) {
   return prisma.narratorProfile.findFirst({
-    where: { id: narratorId, projectId, project: { tenantId } },
+    where: { id: narratorId, projectId, archived: false, project: { tenantId } },
     select: { id: true },
   });
 }
@@ -92,7 +92,7 @@ export async function DELETE(
     requireRole(user, ["Admin", "Editor"]);
     const ok = await assertOwnership(id, narratorId, user.tenantId);
     if (!ok) return NextResponse.json({ error: "not_found" }, { status: 404 });
-    await prisma.narratorProfile.delete({ where: { id: narratorId } });
+    await prisma.narratorProfile.update({ where: { id: narratorId }, data: { archived: true } });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const authRes = handleAuthError(err);

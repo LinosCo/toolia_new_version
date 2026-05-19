@@ -452,6 +452,7 @@ model NarratorProfile {
   voiceId               String?       // provider-specific (ElevenLabs voice_id)
   portraitUrl           String?       @db.Text // ritratto AI (base64 dataURL o URL R2 in futuro)
   characterContractJson Json          @default("{}") // function, territorio, tono, limiti (solo per kind=character)
+  archived              Boolean       @default(false)
   createdAt             DateTime      @default(now())
   updatedAt             DateTime      @updatedAt
   schede                Scheda[]
@@ -490,6 +491,7 @@ model Path {
   themeFocus             String?
   chaptersJson           Json     @default("[]")
   bridgesJson            Json     @default("[]") // testi raccordo fra POI consecutivi
+  archived               Boolean  @default(false)
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 

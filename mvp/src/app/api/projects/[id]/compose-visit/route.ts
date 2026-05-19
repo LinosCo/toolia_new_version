@@ -94,7 +94,7 @@ export async function POST(
         select: { driverId: true, personaId: true, tone: true },
       }),
       prisma.path.findMany({
-        where: { projectId: id },
+        where: { projectId: id, archived: false },
         select: {
           id: true,
           narratorId: true,

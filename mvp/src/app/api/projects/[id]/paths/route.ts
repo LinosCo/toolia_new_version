@@ -34,7 +34,7 @@ export async function GET(
     const p = await assertProject(id, user.tenantId);
     if (!p) return NextResponse.json({ error: "not_found" }, { status: 404 });
     const paths = await prisma.path.findMany({
-      where: { projectId: id },
+      where: { projectId: id, archived: false },
       orderBy: { createdAt: "asc" },
       select: SELECT,
     });

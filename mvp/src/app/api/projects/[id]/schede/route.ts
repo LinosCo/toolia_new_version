@@ -81,7 +81,7 @@ export async function GET(
     // - il suo POI sta in una zona con function=climax (regola deterministica)
     const [paths, climaxPois] = await Promise.all([
       prisma.path.findMany({
-        where: { projectId: id },
+        where: { projectId: id, archived: false },
         select: { corePoiIds: true },
       }),
       prisma.pOI.findMany({
@@ -137,7 +137,7 @@ export async function POST(
         select: { id: true },
       }),
       prisma.narratorProfile.findFirst({
-        where: { id: narratorId, projectId: id },
+        where: { id: narratorId, projectId: id, archived: false },
         select: { id: true },
       }),
     ]);
@@ -166,6 +166,7 @@ export async function POST(
       const inCorePath = await prisma.path.findFirst({
         where: {
           projectId: id,
+          archived: false,
           corePoiIds: { has: poiId },
         },
         select: { id: true },

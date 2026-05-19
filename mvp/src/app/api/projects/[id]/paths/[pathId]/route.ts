@@ -23,7 +23,7 @@ async function assertOwnership(
   tenantId: string,
 ) {
   return prisma.path.findFirst({
-    where: { id: pathId, projectId, project: { tenantId } },
+    where: { id: pathId, projectId, archived: false, project: { tenantId } },
     select: { id: true },
   });
 }
@@ -86,7 +86,7 @@ export async function DELETE(
     requireRole(user, ["Admin", "Editor"]);
     const ok = await assertOwnership(id, pathId, user.tenantId);
     if (!ok) return NextResponse.json({ error: "not_found" }, { status: 404 });
-    await prisma.path.delete({ where: { id: pathId } });
+    await prisma.path.update({ where: { id: pathId }, data: { archived: true } });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const authRes = handleAuthError(err);

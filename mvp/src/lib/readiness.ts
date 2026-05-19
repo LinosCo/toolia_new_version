@@ -62,11 +62,11 @@ export async function computeReadiness(
       select: { id: true, name: true, imageUrl: true },
     }),
     prisma.narratorProfile.findMany({
-      where: { projectId },
+      where: { projectId, archived: false },
       select: { id: true, voiceId: true, portraitUrl: true, name: true },
     }),
     prisma.path.findMany({
-      where: { projectId },
+      where: { projectId, archived: false },
       select: {
         id: true,
         name: true,

@@ -38,7 +38,7 @@ export async function GET(
     const p = await assertProject(id, user.tenantId);
     if (!p) return NextResponse.json({ error: "not_found" }, { status: 404 });
     const narrators = await prisma.narratorProfile.findMany({
-      where: { projectId: id },
+      where: { projectId: id, archived: false },
       orderBy: [{ kind: "asc" }, { createdAt: "asc" }],
       select: SELECT,
     });

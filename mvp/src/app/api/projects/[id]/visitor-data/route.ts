@@ -65,7 +65,7 @@ export async function GET(
           },
         }),
         prisma.narratorProfile.findMany({
-          where: { projectId: id },
+          where: { projectId: id, archived: false },
           select: {
             id: true,
             name: true,
@@ -80,7 +80,7 @@ export async function GET(
           },
         }),
         prisma.path.findMany({
-          where: { projectId: id },
+          where: { projectId: id, archived: false },
           orderBy: { createdAt: "asc" },
           select: {
             id: true,
