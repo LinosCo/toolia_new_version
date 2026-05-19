@@ -364,7 +364,7 @@ model Driver {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   weights         DriverPersonaWeight[]
-  lenses          EditorialLens[]
+  primaryLenses   EditorialLens[] @relation("PrimaryDriverLens")
 
   @@index([projectId])
 }
@@ -380,7 +380,6 @@ model Persona {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
   weights            DriverPersonaWeight[]
-  lenses             EditorialLens[]
 
   @@index([projectId])
 }
@@ -410,17 +409,21 @@ model DriverPersonaWeight {
 }
 
 model EditorialLens {
-  id         String   @id @default(cuid())
-  projectId  String
-  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  driverId   String
-  driver     Driver   @relation(fields: [driverId], references: [id], onDelete: Cascade)
-  personaId  String
-  persona    Persona  @relation(fields: [personaId], references: [id], onDelete: Cascade)
-  tone       String?  @db.Text
-  createdAt  DateTime @default(now())
+  id                 String   @id @default(cuid())
+  projectId          String
+  project            Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name               String
+  primaryDriverId    String?
+  primaryDriver      Driver?  @relation("PrimaryDriverLens", fields: [primaryDriverId], references: [id], onDelete: SetNull)
+  secondaryDriverIds String[] @default([])
+  personaIds         String[] @default([])
+  tone               String?  @db.Text
+  description        String   @db.Text
+  active             Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  schede             Scheda[]
 
-  @@unique([driverId, personaId, projectId])
   @@index([projectId])
 }
 
@@ -567,9 +570,12 @@ model Scheda {
   project                 Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   poiId                   String
   poi                     POI          @relation(fields: [poiId], references: [id], onDelete: Cascade)
+  lensId                  String?
+  lens                    EditorialLens? @relation(fields: [lensId], references: [id], onDelete: SetNull)
   narratorId              String
   narrator                NarratorProfile @relation(fields: [narratorId], references: [id], onDelete: Cascade)
   language                String
+  depth                   SchedaDepth  @default(primary)
   title                   String
   scriptText              String       @db.Text
   durationEstimateSeconds Int?
@@ -583,8 +589,13 @@ model Scheda {
   updatedAt               DateTime     @updatedAt
   audio                   AudioAsset?
 
-  @@unique([poiId, narratorId, language])
+  @@unique([poiId, lensId, narratorId, language, depth])
   @@index([projectId])
+}
+
+enum SchedaDepth {
+  primary
+  deep_dive
 }
 
 enum SchedaStatus {
