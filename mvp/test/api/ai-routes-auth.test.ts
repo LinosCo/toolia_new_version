@@ -39,6 +39,7 @@ const ROUTES = [
   "generate-semantic-base",
   "match-images-to-poi",
   "propose-drivers-personas",
+  "propose-graph",
   "propose-luogo",
   "propose-narrators",
   "propose-paths",
