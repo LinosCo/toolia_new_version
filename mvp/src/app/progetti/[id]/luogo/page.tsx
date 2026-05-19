@@ -39,6 +39,7 @@ import {
   type ProjectKB,
   type StoredProject,
 } from "@/lib/project-store";
+import { GraphEditor } from "@/components/graph-editor";
 import {
   useSources,
   useBrief,
@@ -729,6 +730,25 @@ export default function LuogoStepPage({
               zonesCount={map.zones.length}
             />
           </>
+        )}
+
+        {/* Grafo dei segmenti */}
+        {map.pois.length > 0 && (
+          <section className="space-y-4 pt-2">
+            <div>
+              <h2 className="text-base font-semibold">Grafo dei segmenti</h2>
+              <p className="text-sm text-muted-foreground mt-1">
+                Disegna i nodi topologici (accessi, bivi, transizioni, rientri)
+                e i segmenti che li collegano. Il compositore di percorsi usa
+                questo grafo per calcolare tempi realistici.
+              </p>
+            </div>
+            <GraphEditor
+              projectId={projectId}
+              planimetriaUrl={sources.planimetria?.image}
+              poiList={map.pois.map((p) => ({ id: p.id, name: p.name }))}
+            />
+          </section>
         )}
       </main>
 

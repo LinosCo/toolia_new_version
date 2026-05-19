@@ -1135,6 +1135,63 @@ export function newSourceId(prefix = "s"): string {
 }
 
 /* ============================================================== */
+/* ================ SEGMENT GRAPH (Fase 1) ====================== */
+/* ============================================================== */
+
+export type NodeKind = "accesso" | "bivio" | "transizione" | "rientro";
+export type SegmentKind = "passaggio" | "ramo" | "loop" | "connessione";
+
+export interface MapNodeData {
+  id: string;
+  kind: NodeKind;
+  lat?: number | null;
+  lng?: number | null;
+  planimetriaX?: number | null;
+  planimetriaY?: number | null;
+  label?: string | null;
+  orderIndex: number;
+}
+
+export interface SegmentData {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  kind: SegmentKind;
+  traversalSec?: number | null;
+  detourCost?: number | null;
+  poiIds: string[];
+  bidirectional: boolean;
+  label?: string | null;
+}
+
+export interface GraphData {
+  nodes: MapNodeData[];
+  segments: SegmentData[];
+}
+
+export async function loadGraph(projectId: string): Promise<GraphData> {
+  const res = await fetch(`/api/projects/${projectId}/graph`);
+  if (!res.ok) throw new Error("Failed to load graph");
+  return res.json();
+}
+
+export async function saveGraph(
+  projectId: string,
+  data: GraphData,
+): Promise<GraphData> {
+  const res = await fetch(`/api/projects/${projectId}/graph`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Failed to save graph: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
+/* ============================================================== */
 /* ============== STEP 3 — DRIVER E PERSONAS ==================== */
 /* ============================================================== */
 
