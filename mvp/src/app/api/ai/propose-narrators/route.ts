@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 type Provider = "kimi" | "openai";
 
@@ -193,6 +194,15 @@ Proponi 1 backbone + 1-2 character adatti a questo luogo e brief. Per ogni narra
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "propose-narrators",
+      provider: provider,
+      model,
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     let parsed: { narrators?: unknown[] };
     try {
       parsed = JSON.parse(raw);

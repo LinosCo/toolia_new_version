@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 const SYSTEM = `Sei un esperto di identificazione architettonica. Ricevi una foto di un luogo culturale e una lista di punti di interesse (POI) con nome e descrizione. Devi dire a quale POI la foto corrisponde, oppure se non corrisponde a nessuno.
 Se la foto è un dettaglio stretto (es. un affresco, un oggetto) classificala come "riferimento-ai" invece che "foto-poi".`;
@@ -82,6 +83,15 @@ export async function POST(req: NextRequest) {
     });
 
     const raw = completion.choices[0]?.message?.content;
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "match-images-to-poi",
+      provider: "openai",
+      model: "gpt-4o",
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     if (!raw) {
       return NextResponse.json({ error: "empty_response" }, { status: 502 });
     }
