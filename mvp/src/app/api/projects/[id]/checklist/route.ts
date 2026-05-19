@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError, requireRole } from "@/lib/rbac";
+import { computeReadiness } from "@/lib/readiness";
 
 const KEYS = [
   "revisione_contenuti",
@@ -76,6 +77,18 @@ export async function POST(
         { error: "checklist_incomplete" },
         { status: 400 },
       );
+
+    // Re-check automatic blockers to prevent bypass via direct API call
+    const report = await computeReadiness(id);
+    if (!report.canPublish) {
+      return NextResponse.json(
+        {
+          error: "blockers_present",
+          blockers: report.blockers.filter((b) => b.severity === "block"),
+        },
+        { status: 400 },
+      );
+    }
 
     const updated = await prisma.project.update({
       where: { id },
