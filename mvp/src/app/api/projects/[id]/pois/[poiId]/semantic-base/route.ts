@@ -46,8 +46,11 @@ export async function PUT(
       where: { id: poiId },
       data: { semanticBaseJson: body },
     });
-    // Quando la base semantica cambia, le schede derivate diventano "stale"?
-    // Per ora non tocchiamo lo stato — l'editor può decidere se rigenerare.
+    // Mark all audio of schede derived from this POI as stale
+    await prisma.audioAsset.updateMany({
+      where: { scheda: { poiId } },
+      data: { isStale: true },
+    });
     return NextResponse.json({ ok: true });
   } catch (err) {
     const authRes = handleAuthError(err);
