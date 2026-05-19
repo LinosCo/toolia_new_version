@@ -131,6 +131,7 @@ model Project {
   assistantQAs AssistantQA[]
   familyMissions FamilyMission[]
   llmUsages    LlmUsage[]
+  narrativeTension NarrativeTension?
 
   @@index([tenantId])
 }
@@ -741,4 +742,21 @@ enum SegmentKind {
   ramo
   loop
   connessione
+}
+
+// ============================================================
+// NARRATIVE TENSION MAP (Fase 1.3) — bussola editoriale del progetto
+// ============================================================
+
+model NarrativeTension {
+  id             String   @id @default(cuid())
+  projectId      String   @unique
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  mustTellJson   Json     @default("[]")    // array di {title, why, sourceIds[]}
+  niceToTellJson Json     @default("[]")    // array di {title, why, sourceIds[]}
+  avoidJson      Json     @default("[]")    // array di {topic, reason}
+  verifyJson     Json     @default("[]")    // array di {claim, source, status: "pending"|"verified"|"rejected"}
+  tensionsJson   Json     @default("[]")    // array di {clientWants, sourcesSay, recommendation}
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

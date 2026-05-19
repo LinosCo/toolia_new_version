@@ -32,6 +32,7 @@ export async function resetDb(): Promise<void> {
   await prisma.interview.deleteMany();
   await prisma.source.deleteMany();
   await prisma.brief.deleteMany();
+  await prisma.narrativeTension.deleteMany();
   await prisma.mapAnchor.deleteMany();
   await prisma.pOI.deleteMany();
   await prisma.zone.deleteMany();
