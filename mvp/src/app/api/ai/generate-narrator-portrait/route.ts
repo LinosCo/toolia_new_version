@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey } from "@/lib/tenant-keys";
 
 interface Body {
   apiKey?: string;
@@ -16,9 +18,25 @@ interface Body {
 // Genera un ritratto stilizzato coerente con la bio narrativa.
 // Usa OpenAI Images (gpt-image-1, fallback a dall-e-3).
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
+  try {
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
   try {
     const body: Body = await req.json();
-    const { apiKey, name, kind, bio, identity, toneAndRegister } = body;
+    const { apiKey: bodyApiKey, name, kind, bio, identity, toneAndRegister } = body;
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, "openai");
+    const apiKey = serverKey ?? bodyApiKey;
+
     if (!apiKey) {
       return NextResponse.json(
         {

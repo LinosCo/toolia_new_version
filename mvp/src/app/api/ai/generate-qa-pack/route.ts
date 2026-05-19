@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
 
 type Provider = "kimi" | "openai";
 
@@ -71,10 +73,29 @@ Formato:
 }`;
 
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
+  try {
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
   try {
     const body: Body = await req.json();
-    const { apiKey, provider, poi, semanticBase, projectName } = body;
-    if (!apiKey || !provider) {
+    const { apiKey: bodyApiKey, provider, poi, semanticBase, projectName } = body;
+    if (!provider) {
+      return NextResponse.json({ error: "missing_api_key" }, { status: 400 });
+    }
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, provider as TenantApiProvider);
+    const apiKey = serverKey ?? bodyApiKey;
+
+    if (!apiKey) {
       return NextResponse.json({ error: "missing_api_key" }, { status: 400 });
     }
     if (!poi?.id || !poi?.name) {
