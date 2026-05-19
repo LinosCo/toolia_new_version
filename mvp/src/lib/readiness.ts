@@ -44,7 +44,7 @@ export interface ReadinessComputation {
 export async function computeReadiness(
   projectId: string,
 ): Promise<ReadinessComputation> {
-  const [schede, pois, narrators, paths] = await Promise.all([
+  const [schede, pois, narrators, paths, tension] = await Promise.all([
     prisma.scheda.findMany({
       where: { projectId },
       select: {
@@ -73,6 +73,9 @@ export async function computeReadiness(
         narratorId: true,
         poiOrderJson: true,
       },
+    }),
+    prisma.narrativeTension.findUnique({
+      where: { projectId },
     }),
   ]);
 
@@ -198,6 +201,19 @@ export async function computeReadiness(
       message: `Solo ${Math.round(poiCoverage * 100)}% dei POI ha una scheda pubblicata.`,
       action: { label: "Vai alle schede", href: `/progetti/${projectId}/schede` },
     });
+  }
+
+  if (tension) {
+    const verifyItems = (tension.verifyJson as Array<{ status?: string }>) ?? [];
+    const pendingVerify = verifyItems.filter((v) => v.status === "pending");
+    if (pendingVerify.length > 0) {
+      blockers.push({
+        id: "pending_verify",
+        severity: "warn",
+        message: `${pendingVerify.length} claim ancora da verificare.`,
+        action: { label: "Vai alla Narrative Tension Map", href: `/progetti/${projectId}/brief` },
+      });
+    }
   }
 
   const hasBlocker = blockers.some((b) => b.severity === "block");
