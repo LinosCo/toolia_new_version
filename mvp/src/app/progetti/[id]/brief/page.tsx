@@ -41,6 +41,7 @@ import {
   useSyncedState,
   invalidateProjectData,
 } from "@/lib/hooks/use-project-data";
+import { useDebouncedCallback } from "@/lib/hooks/use-debounce";
 import { loadApiKeys } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
 
@@ -169,6 +170,8 @@ export default function BriefStepPage({
       window.dispatchEvent(new Event("toolia:brief-updated"));
     });
   };
+
+  const debouncedPersist = useDebouncedCallback(persist, 800);
 
   const approvedFacts = useMemo(
     () => kb.facts.filter((f) => f.approved),
@@ -407,7 +410,7 @@ export default function BriefStepPage({
                 <Input
                   value={brief.promessaNarrativa}
                   onChange={(e) =>
-                    persist({ ...brief, promessaNarrativa: e.target.value })
+                    debouncedPersist({ ...brief, promessaNarrativa: e.target.value })
                   }
                   placeholder="Es. Un forte nato per una guerra che si è combattuta altrove"
                   className="h-11 text-base"
@@ -420,7 +423,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.obiettivo}
                   onChange={(e) =>
-                    persist({ ...brief, obiettivo: e.target.value })
+                    debouncedPersist({ ...brief, obiettivo: e.target.value })
                   }
                   rows={2}
                   placeholder="Es. Scoprire il lavoro umano dietro una fortificazione apparentemente militare"
@@ -434,7 +437,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.obiettivoCliente}
                   onChange={(e) =>
-                    persist({ ...brief, obiettivoCliente: e.target.value })
+                    debouncedPersist({ ...brief, obiettivoCliente: e.target.value })
                   }
                   rows={2}
                   placeholder="Es. Posizionare il forte come meta culturale di qualità, attrarre turismo lento"
@@ -453,7 +456,7 @@ export default function BriefStepPage({
                         key={t.value}
                         type="button"
                         onClick={() =>
-                          persist({ ...brief, tipoEsperienza: t.value })
+                          debouncedPersist({ ...brief, tipoEsperienza: t.value })
                         }
                         className={cn(
                           "text-left rounded-xl border p-3.5 transition-colors",
@@ -491,7 +494,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.target}
                   onChange={(e) =>
-                    persist({ ...brief, target: e.target.value })
+                    debouncedPersist({ ...brief, target: e.target.value })
                   }
                   rows={2}
                   placeholder="Es. Turisti 35-60 curiosi di storia e territorio, famiglie con adolescenti"
@@ -505,7 +508,7 @@ export default function BriefStepPage({
                 <Input
                   value={brief.percezioneDaLasciare}
                   onChange={(e) =>
-                    persist({
+                    debouncedPersist({
                       ...brief,
                       percezioneDaLasciare: e.target.value,
                     })
@@ -535,7 +538,7 @@ export default function BriefStepPage({
                     step={5}
                     value={brief.durataMinuti}
                     onChange={(e) =>
-                      persist({
+                      debouncedPersist({
                         ...brief,
                         durataMinuti: parseInt(e.target.value, 10),
                       })
@@ -563,7 +566,7 @@ export default function BriefStepPage({
                       <button
                         key={t.value}
                         type="button"
-                        onClick={() => persist({ ...brief, tono: t.value })}
+                        onClick={() => debouncedPersist({ ...brief, tono: t.value })}
                         className={cn(
                           "text-left rounded-xl border p-3.5 transition-colors",
                           selected
@@ -600,7 +603,7 @@ export default function BriefStepPage({
                 label="Sensibilità da rispettare"
                 hint="Temi politici, culturali o storici da trattare con cautela"
                 values={brief.sensibilita}
-                onChange={(sensibilita) => persist({ ...brief, sensibilita })}
+                onChange={(sensibilita) => debouncedPersist({ ...brief, sensibilita })}
                 placeholder="Es. Non enfatizzare retorica militarista"
                 max={5}
               />
@@ -608,7 +611,7 @@ export default function BriefStepPage({
                 label="Vincoli di brand"
                 hint="Regole di linguaggio e positioning"
                 values={brief.vincoliBrand}
-                onChange={(vincoliBrand) => persist({ ...brief, vincoliBrand })}
+                onChange={(vincoliBrand) => debouncedPersist({ ...brief, vincoliBrand })}
                 placeholder="Es. Usare toponomastica locale, evitare anglicismi"
                 max={5}
               />
@@ -624,7 +627,7 @@ export default function BriefStepPage({
                 label="Storie obbligatorie (must tell)"
                 hint="Le 2-4 storie identitarie che devono apparire in ogni output"
                 values={brief.mustTell}
-                onChange={(mustTell) => persist({ ...brief, mustTell })}
+                onChange={(mustTell) => debouncedPersist({ ...brief, mustTell })}
                 placeholder="Es. La notte del 14 agosto 1916 quando…"
                 max={6}
                 multiline
@@ -633,7 +636,7 @@ export default function BriefStepPage({
                 label="Da raccontare se c'è tempo (nice to tell)"
                 hint="Arricchimenti opzionali"
                 values={brief.niceToTell}
-                onChange={(niceToTell) => persist({ ...brief, niceToTell })}
+                onChange={(niceToTell) => debouncedPersist({ ...brief, niceToTell })}
                 placeholder="Es. La tradizione dei narcisi di fine maggio"
                 max={10}
                 multiline
@@ -642,7 +645,7 @@ export default function BriefStepPage({
                 label="Da evitare"
                 hint="Argomenti, toni o dettagli da non toccare"
                 values={brief.avoid}
-                onChange={(avoid) => persist({ ...brief, avoid })}
+                onChange={(avoid) => debouncedPersist({ ...brief, avoid })}
                 placeholder="Es. Retorica gloriosa della guerra"
                 max={8}
                 multiline
@@ -651,7 +654,7 @@ export default function BriefStepPage({
                 label="Da verificare"
                 hint="Claim e ipotesi che richiedono conferma prima di pubblicare (auto-popolato dalle ipotesi della KB)"
                 values={brief.verify}
-                onChange={(verify) => persist({ ...brief, verify })}
+                onChange={(verify) => debouncedPersist({ ...brief, verify })}
                 placeholder="Es. Identità dell'autore della medaglia trovata nel 2019"
                 max={20}
                 multiline
@@ -669,7 +672,7 @@ export default function BriefStepPage({
                 hint="Logistica: parcheggio, orari, biglietti, accessibilità, bagni"
                 values={brief.visitorQuestions.pratiche}
                 onChange={(pratiche) =>
-                  persist({
+                  debouncedPersist({
                     ...brief,
                     visitorQuestions: { ...brief.visitorQuestions, pratiche },
                   })
@@ -683,7 +686,7 @@ export default function BriefStepPage({
                 hint="Domande che nascono sul posto, dettagli insoliti"
                 values={brief.visitorQuestions.curiosita}
                 onChange={(curiosita) =>
-                  persist({
+                  debouncedPersist({
                     ...brief,
                     visitorQuestions: { ...brief.visitorQuestions, curiosita },
                   })
@@ -697,7 +700,7 @@ export default function BriefStepPage({
                 hint="Domande per visitatori che vogliono più contesto storico/tematico"
                 values={brief.visitorQuestions.approfondimento}
                 onChange={(approfondimento) =>
-                  persist({
+                  debouncedPersist({
                     ...brief,
                     visitorQuestions: {
                       ...brief.visitorQuestions,
@@ -722,7 +725,7 @@ export default function BriefStepPage({
                 hint="Regole di inclusione — condizioni che un contenuto deve rispettare per essere usato"
                 values={brief.criterioAmmissibilita.inclusione}
                 onChange={(inclusione) =>
-                  persist({
+                  debouncedPersist({
                     ...brief,
                     criterioAmmissibilita: {
                       ...brief.criterioAmmissibilita,
@@ -739,7 +742,7 @@ export default function BriefStepPage({
                 hint="Esclusioni dure (più rigido di 'da evitare')"
                 values={brief.criterioAmmissibilita.esclusione}
                 onChange={(esclusione) =>
-                  persist({
+                  debouncedPersist({
                     ...brief,
                     criterioAmmissibilita: {
                       ...brief.criterioAmmissibilita,
@@ -766,7 +769,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.policyFonti.schede}
                   onChange={(e) =>
-                    persist({
+                    debouncedPersist({
                       ...brief,
                       policyFonti: {
                         ...brief.policyFonti,
@@ -786,7 +789,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.policyFonti.chatbot}
                   onChange={(e) =>
-                    persist({
+                    debouncedPersist({
                       ...brief,
                       policyFonti: {
                         ...brief.policyFonti,
@@ -806,7 +809,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.policyFonti.zone}
                   onChange={(e) =>
-                    persist({
+                    debouncedPersist({
                       ...brief,
                       policyFonti: {
                         ...brief.policyFonti,
@@ -826,7 +829,7 @@ export default function BriefStepPage({
                 <textarea
                   value={brief.policyFonti.driver}
                   onChange={(e) =>
-                    persist({
+                    debouncedPersist({
                       ...brief,
                       policyFonti: {
                         ...brief.policyFonti,
@@ -862,7 +865,7 @@ export default function BriefStepPage({
                   role="switch"
                   aria-checked={brief.familyMode.enabled}
                   onClick={() =>
-                    persist({
+                    debouncedPersist({
                       ...brief,
                       familyMode: {
                         ...brief.familyMode,
@@ -896,7 +899,7 @@ export default function BriefStepPage({
                     <Input
                       value={brief.familyMode.mascotName ?? ""}
                       onChange={(e) =>
-                        persist({
+                        debouncedPersist({
                           ...brief,
                           familyMode: {
                             ...brief.familyMode,
@@ -917,7 +920,7 @@ export default function BriefStepPage({
                             key={e.value}
                             type="button"
                             onClick={() =>
-                              persist({
+                              debouncedPersist({
                                 ...brief,
                                 familyMode: {
                                   ...brief.familyMode,
@@ -947,7 +950,7 @@ export default function BriefStepPage({
                             key={m.value}
                             type="button"
                             onClick={() =>
-                              persist({
+                              debouncedPersist({
                                 ...brief,
                                 familyMode: {
                                   ...brief.familyMode,
@@ -975,7 +978,7 @@ export default function BriefStepPage({
                     <Input
                       value={brief.familyMode.tonoFamily ?? ""}
                       onChange={(e) =>
-                        persist({
+                        debouncedPersist({
                           ...brief,
                           familyMode: {
                             ...brief.familyMode,
