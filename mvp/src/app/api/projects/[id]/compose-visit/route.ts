@@ -31,10 +31,14 @@ export async function POST(
             OR: [{ tenantId: user.tenantId }, { status: "published" }],
           }
         : { id, status: "published" },
-      select: { id: true, settingsJson: true, languages: true },
+      select: { id: true, settingsJson: true, languages: true, tenantId: true },
     });
     if (!project)
       return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+    // Owner view = editor del proprio tenant: il compose include anche schede
+    // in bozza così la preview Studio funziona prima della pubblicazione.
+    const isOwnerView = !!user && project.tenantId === user.tenantId;
 
     const body = (await req.json()) as ComposeBody;
     const driverIds = Array.isArray(body.driverIds) ? body.driverIds : [];
@@ -76,7 +80,9 @@ export async function POST(
         orderBy: { orderIndex: "asc" },
       }),
       prisma.scheda.findMany({
-        where: { projectId: id, status: "published", language },
+        where: isOwnerView
+          ? { projectId: id, language }
+          : { projectId: id, status: "published", language },
         select: {
           id: true,
           poiId: true,
