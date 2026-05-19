@@ -47,7 +47,7 @@ export async function seedTenantAndUser(): Promise<{ tenantId: string; userId: s
   });
   const user = await prisma.user.create({
     data: {
-      email: `test-${Date.now()}@example.com`,
+      email: `test-${Date.now()}-${Math.random().toString(36).slice(2, 10)}@example.com`,
       tenantId: tenant.id,
       role: "Admin",
     },
