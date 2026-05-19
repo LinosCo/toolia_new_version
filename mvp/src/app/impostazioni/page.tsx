@@ -18,6 +18,7 @@ import {
   Server,
   AlertTriangle,
   Trash2,
+  BarChart2,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -65,6 +66,10 @@ const sections = [
   { id: "pericolo", label: "Zona pericolosa", icon: ShieldAlert },
 ];
 
+const externalLinks = [
+  { href: "/impostazioni/consumo", label: "Consumo AI", icon: BarChart2 },
+];
+
 export default function ImpostazioniPage() {
   return (
     <div className="flex min-h-screen w-full bg-paper">
@@ -108,6 +113,21 @@ export default function ImpostazioniPage() {
                     </li>
                   );
                 })}
+                <li className="shrink-0 lg:mt-3 lg:pt-3 lg:border-t lg:border-border/60">
+                  {externalLinks.map((l) => {
+                    const Icon = l.icon;
+                    return (
+                      <a
+                        key={l.href}
+                        href={l.href}
+                        className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/70 transition-colors"
+                      >
+                        <Icon className="h-4 w-4 shrink-0" strokeWidth={1.6} />
+                        <span>{l.label}</span>
+                      </a>
+                    );
+                  })}
+                </li>
               </ul>
             </nav>
 
