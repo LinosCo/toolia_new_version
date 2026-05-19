@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
 import { logLlmCall } from "@/lib/llm-usage";
+import { prisma } from "@/lib/db";
 
 export const maxDuration = 120;
 
@@ -11,6 +12,7 @@ type Provider = "kimi" | "openai";
 interface Body {
   apiKey?: string;
   provider?: Provider;
+  projectId?: string;
   poi?: {
     id: string;
     name: string;
@@ -138,6 +140,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "missing_poi" }, { status: 400 });
     }
 
+    // Load tension map if projectId provided
+    let tensionContext = "";
+    if (body.projectId) {
+      const tension = await prisma.narrativeTension.findUnique({
+        where: { projectId: body.projectId },
+      });
+      if (tension) {
+        const mustTell = (tension.mustTellJson as Array<{ title?: string }>) ?? [];
+        const avoid = (tension.avoidJson as Array<{ topic?: string }>) ?? [];
+        const verify = (tension.verifyJson as Array<{ claim?: string; status?: string }>) ?? [];
+        const pendingVerify = verify.filter((v) => v.status === "pending");
+
+        if (mustTell.length > 0 || avoid.length > 0 || pendingVerify.length > 0) {
+          tensionContext = `
+
+## Vincoli editoriali (Narrative Tension Map)
+${mustTell.length > 0 ? `MUST TELL: ${mustTell.map((m) => m.title).filter(Boolean).join(", ")}` : ""}
+${avoid.length > 0 ? `AVOID (NON includere): ${avoid.map((a) => a.topic).filter(Boolean).join(", ")}` : ""}
+${pendingVerify.length > 0 ? `VERIFY (uso cauto, segnala in editorialWarnings): ${pendingVerify.map((v) => v.claim).filter(Boolean).join(", ")}` : ""}
+
+REGOLA: se la base semantica toccherebbe un argomento AVOID, escludi quel contenuto. Se attinge a un fatto VERIFY non confermato, segnala come editorialWarning nella base.`;
+        }
+      }
+    }
+
     const brief = body.brief ?? {};
     const drivers = (body.drivers ?? []).slice(0, 15);
     const facts = (body.kbFacts ?? []).slice(0, 60);
@@ -165,7 +192,7 @@ FATTI KB (${facts.length}, rilevanti per questo POI e generali):
 ${facts.map((f) => `- [${f.category}·${f.importance}·${f.reliability}] ${f.content}`).join("\n")}
 
 DOMANDE VISITATORE PREVISTE:
-${[...(vq.pratiche ?? []), ...(vq.curiosita ?? []), ...(vq.approfondimento ?? [])].map((q) => `- ${q}`).join("\n") || "—"}
+${[...(vq.pratiche ?? []), ...(vq.curiosita ?? []), ...(vq.approfondimento ?? [])].map((q) => `- ${q}`).join("\n") || "—"}${tensionContext}
 
 Genera la base di significato per questo POI.`;
 
