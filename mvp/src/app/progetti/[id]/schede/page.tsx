@@ -63,6 +63,8 @@ interface Scheda {
   id: string;
   poiId: string;
   narratorId: string;
+  lensId: string | null;
+  depth: "primary" | "deep_dive";
   language: string;
   title: string;
   scriptText: string;
@@ -83,6 +85,13 @@ interface Scheda {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+interface EditorialLensItem {
+  id: string;
+  name: string;
+  description: string;
+  active: boolean;
 }
 
 interface ProjectInfo {
@@ -129,6 +138,7 @@ export default function SchedeStepPage({
   const [selectedPoi, setSelectedPoi] = useState<string | "all">("all");
   const [bulkRunning, setBulkRunning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<string>("");
+  const [activeLenses, setActiveLenses] = useState<EditorialLensItem[]>([]);
 
   const keys = typeof window !== "undefined" ? loadApiKeys() : null;
   const activeProvider: "kimi" | "openai" | null = keys?.llm.openai
@@ -180,6 +190,15 @@ export default function SchedeStepPage({
 
   useEffect(() => {
     saveProgress(projectId, { currentStep: "luogo" });
+  }, [projectId]);
+
+  useEffect(() => {
+    fetch(`/api/projects/${projectId}/lenses`)
+      .then((r) => r.json())
+      .then((d: { lenses?: EditorialLensItem[] }) =>
+        setActiveLenses((d.lenses ?? []).filter((l) => l.active)),
+      )
+      .catch(() => {/* lenses non disponibili, nessuna lente mostrata */});
   }, [projectId]);
 
   const stats = useMemo(() => {
@@ -494,6 +513,7 @@ export default function SchedeStepPage({
                 poi={poi}
                 schede={schedeByPoi.get(poi.id) ?? []}
                 narrators={narrators}
+                activeLenses={activeLenses}
                 brief={brief}
                 kb={kb}
                 drivers={drivers}
@@ -618,6 +638,7 @@ interface PoiBlockProps {
   };
   schede: Scheda[];
   narrators: Narrator[];
+  activeLenses: EditorialLensItem[];
   brief: ProjectBrief | undefined;
   kb: ProjectKB;
   drivers: ProjectDriversPersonas | undefined;
@@ -637,6 +658,7 @@ function PoiBlock({
   poi,
   schede,
   narrators,
+  activeLenses,
   brief,
   kb,
   drivers,
@@ -645,7 +667,7 @@ function PoiBlock({
   apiKey,
   provider,
   hasLlmKey,
-  narratorsById,
+  narratorsById: _narratorsById,
   zoneInfo,
   onUpdateScheda,
   onRemoveScheda,
@@ -658,6 +680,8 @@ function PoiBlock({
   const [generatingSchedaFor, setGeneratingSchedaFor] = useState<string | null>(
     null,
   );
+  // Tracks which (narratorId, lensId) combos are currently generating
+  const [generatingCell, setGeneratingCell] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -824,6 +848,92 @@ function PoiBlock({
     }
   };
 
+  // Genera una singola scheda per (narratorId, lensId) e la persiste
+  const generateOne = async (narratorId: string, lensId: string) => {
+    if (!hasLlmKey || !provider) return;
+    const cellKey = `${narratorId}:${lensId}`;
+    if (generatingCell === cellKey) return;
+    setGeneratingCell(cellKey);
+    try {
+      const narrator = narrators.find((n) => n.id === narratorId);
+      if (!narrator) return;
+
+      const r = await fetch("/api/ai/generate-scheda", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          apiKey,
+          provider,
+          language: "it",
+          projectName: project?.name,
+          lensId,
+          poi: {
+            id: poi.id,
+            name: poi.name,
+            description: poi.description,
+            minStaySeconds: poi.minStaySeconds,
+          },
+          narrator: {
+            id: narrator.id,
+            name: narrator.name,
+            kind: narrator.kind,
+            voiceStyle: narrator.voiceStyle,
+            characterBio: narrator.characterBio ?? "",
+            characterContractJson: narrator.characterContractJson,
+          },
+          semanticBase,
+          brief: brief
+            ? {
+                obiettivo: brief.obiettivo,
+                promessaNarrativa: brief.promessaNarrativa,
+                tono: brief.tono,
+                tipoEsperienza: brief.tipoEsperienza,
+                mustTell: brief.mustTell,
+                avoid: brief.avoid,
+              }
+            : undefined,
+        }),
+      });
+      const data = await r.json() as { title?: string; scriptText?: string };
+      if (!r.ok) return;
+
+      // Controlla se esiste già per questa combinazione (lens + depth primary)
+      const existingForLens = schede.find(
+        (s) =>
+          s.narratorId === narratorId &&
+          s.lensId === lensId &&
+          s.depth === "primary" &&
+          s.language === "it",
+      );
+
+      if (existingForLens) {
+        await onUpdateScheda(existingForLens.id, {
+          title: data.title,
+          scriptText: data.scriptText,
+          semanticBaseJson: semanticBase,
+        });
+      } else {
+        await fetch(`/api/projects/${projectId}/schede`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            poiId: poi.id,
+            narratorId,
+            lensId,
+            depth: "primary",
+            language: "it",
+            title: data.title,
+            scriptText: data.scriptText,
+            semanticBaseJson: semanticBase,
+          }),
+        });
+        await onReload();
+      }
+    } finally {
+      setGeneratingCell(null);
+    }
+  };
+
   return (
     <section className="rounded-2xl border border-border bg-card overflow-hidden">
       {/* POI header */}
@@ -939,45 +1049,149 @@ function PoiBlock({
         )}
       </div>
 
-      {/* Schede per narratore */}
+      {/* Schede: matrix (lente × narratore) */}
       <div className="px-5 py-4 space-y-3">
         <div className="flex items-center gap-2">
           <FileText
             className="h-4 w-4 text-muted-foreground"
             strokeWidth={1.8}
           />
-          <p className="text-sm font-medium">Schede per narratore</p>
+          <p className="text-sm font-medium">Schede per lente × narratore</p>
         </div>
         {narrators.length === 0 ? (
           <p className="text-xs text-muted-foreground italic">
             Nessun narratore. Creane in Step 05.
           </p>
+        ) : activeLenses.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic">
+            Nessuna lente editoriale attiva. Vai allo Step Driver per definirne.
+          </p>
         ) : (
-          <div className="space-y-3">
-            {narrators.map((n) => {
-              const existing = schede.find(
-                (s) => s.narratorId === n.id && s.language === "it",
-              );
-              return (
-                <SchedaRow
-                  key={n.id}
-                  poiId={poi.id}
-                  projectId={projectId}
-                  narrator={n}
-                  scheda={existing}
-                  canGenerate={hasLlmKey && hasBase}
-                  generating={generatingSchedaFor === n.id}
-                  onGenerate={() => generateSchedaFor(n.id)}
-                  onUpdate={(patch) =>
-                    existing ? onUpdateScheda(existing.id, patch) : undefined
-                  }
-                  onRemove={() =>
-                    existing ? onRemoveScheda(existing.id) : undefined
-                  }
-                />
-              );
-            })}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr>
+                  <th className="text-left py-2 pr-4 font-medium text-xs text-muted-foreground uppercase tracking-[0.12em] whitespace-nowrap">
+                    Narratore
+                  </th>
+                  {activeLenses.map((lens) => (
+                    <th
+                      key={lens.id}
+                      className="text-left py-2 pr-4 font-medium text-xs text-muted-foreground uppercase tracking-[0.12em] whitespace-nowrap"
+                      title={lens.description}
+                    >
+                      {lens.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {narrators.map((n) => (
+                  <tr key={n.id} className="border-t border-border/40">
+                    <td className="py-2.5 pr-4 font-medium text-sm whitespace-nowrap">
+                      {n.name}
+                      <span className="ml-1.5 text-[10px] text-muted-foreground">
+                        {n.kind === "backbone" ? "principale" : "personaggio"}
+                      </span>
+                    </td>
+                    {activeLenses.map((lens) => {
+                      const cellKey = `${n.id}:${lens.id}`;
+                      const schedaForCell = schede.find(
+                        (s) =>
+                          s.narratorId === n.id &&
+                          s.lensId === lens.id &&
+                          s.depth === "primary" &&
+                          s.language === "it",
+                      );
+                      const isCellGenerating = generatingCell === cellKey;
+                      return (
+                        <td key={lens.id} className="py-2.5 pr-4">
+                          {isCellGenerating ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              genera…
+                            </span>
+                          ) : schedaForCell ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Apri SchedaRow espansa: scroll-to o expand inline
+                                // Per ora mostra uno status badge cliccabile
+                              }}
+                              className={cn(
+                                "px-2.5 py-0.5 rounded-full text-[11px] font-medium transition-colors",
+                                schedaForCell.status === "published"
+                                  ? "bg-emerald-100 text-emerald-800 hover:bg-emerald-200"
+                                  : schedaForCell.status === "in_review"
+                                    ? "bg-amber-100 text-amber-800 hover:bg-amber-200"
+                                    : schedaForCell.status === "client_review"
+                                      ? "bg-blue-100 text-blue-800 hover:bg-blue-200"
+                                      : "bg-muted text-foreground hover:bg-muted/80",
+                              )}
+                            >
+                              {STATUS_LABELS[schedaForCell.status]}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!hasLlmKey || !hasBase || generatingCell !== null}
+                              onClick={() => void generateOne(n.id, lens.id)}
+                              className={cn(
+                                "text-xs transition-colors",
+                                hasLlmKey && hasBase && generatingCell === null
+                                  ? "text-brand hover:underline"
+                                  : "text-muted-foreground cursor-not-allowed",
+                              )}
+                            >
+                              + Genera
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+        )}
+        {/* Fallback: schede senza lente (compatibilità pre-Fase 1) */}
+        {narrators.some((n) =>
+          schede.find(
+            (s) => s.narratorId === n.id && s.lensId === null && s.language === "it",
+          ),
+        ) && (
+          <details className="mt-3">
+            <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+              Schede senza lente (legacy) — {schede.filter((s) => s.lensId === null).length}
+            </summary>
+            <div className="mt-2 space-y-3">
+              {narrators.map((n) => {
+                const existing = schede.find(
+                  (s) => s.narratorId === n.id && s.language === "it" && s.lensId === null,
+                );
+                if (!existing) return null;
+                return (
+                  <SchedaRow
+                    key={n.id}
+                    poiId={poi.id}
+                    projectId={projectId}
+                    narrator={n}
+                    scheda={existing}
+                    canGenerate={false}
+                    generating={generatingSchedaFor === n.id}
+                    onGenerate={() => generateSchedaFor(n.id)}
+                    onUpdate={(patch) =>
+                      existing ? onUpdateScheda(existing.id, patch) : undefined
+                    }
+                    onRemove={() =>
+                      existing ? onRemoveScheda(existing.id) : undefined
+                    }
+                  />
+                );
+              })}
+            </div>
+          </details>
         )}
       </div>
 

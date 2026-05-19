@@ -284,9 +284,19 @@ export async function POST(
           const semanticTotal = poisNeedingSemantic.length;
           let semanticCompleted = 0;
 
+          // Carica lenti editoriali attive — serve prima di calcolare il totale
+          const activeLensesEarly = await prisma.editorialLens.findMany({
+            where: { projectId: id, active: true },
+            select: { id: true, name: true },
+          });
+          const lensCountEarly = activeLensesEarly.length > 0 ? activeLensesEarly.length : 1;
+
           send({
             type: "started",
-            totalSteps: semanticTotal + body.poiIds.length * body.narratorIds.length,
+            totalSteps:
+              semanticTotal +
+              body.poiIds.length * body.narratorIds.length * lensCountEarly,
+            lensCount: lensCountEarly,
           });
 
           // Mappa in-memory delle basi (include anche quelle già esistenti)
@@ -376,7 +386,15 @@ Genera la base di significato per questo POI.`;
 
           // ── FASE 2: Schede ───────────────────────────────────────────────
 
-          const schedaTotal = body.poiIds.length * body.narratorIds.length;
+          // Riusa il risultato già caricato prima del started event
+          // Se nessuna lente attiva, genera senza lente (comportamento pre-Fase 1)
+          const lensesToProcess: Array<{ id: string | null; name: string }> =
+            activeLensesEarly.length > 0
+              ? activeLensesEarly
+              : [{ id: null, name: "(nessuna lente)" }];
+
+          const schedaTotal =
+            body.poiIds.length * body.narratorIds.length * lensesToProcess.length;
           let schedaCompleted = 0;
 
           const schedaTasks: Array<() => Promise<void>> = [];
@@ -385,7 +403,7 @@ Genera la base di significato per questo POI.`;
             const semanticBase = semanticBaseMap.get(poi.id);
             if (!semanticBase || Object.keys(semanticBase).length === 0) {
               // Salta: niente base → incrementa contatori silenziosamente
-              for (let _i = 0; _i < body.narratorIds.length; _i++) {
+              for (let _i = 0; _i < body.narratorIds.length * lensesToProcess.length; _i++) {
                 schedaTasks.push(async () => {
                   schedaCompleted++;
                   send({
@@ -401,32 +419,41 @@ Genera la base di significato per questo POI.`;
             }
 
             for (const narratorId of body.narratorIds) {
-              const capturedPoiId = poi.id;
-              const capturedNarratorId = narratorId;
+              for (const lens of lensesToProcess) {
+                const capturedPoiId = poi.id;
+                const capturedNarratorId = narratorId;
+                const capturedLensId = lens.id;
+                const capturedLensName = lens.name;
 
-              schedaTasks.push(async () => {
-                try {
-                  if (skipExistingSchede) {
-                    const existing = await prisma.scheda.findFirst({
-                      where: {
-                        poiId: capturedPoiId,
-                        narratorId: capturedNarratorId,
-                        language,
-                        projectId: id,
-                      },
-                      select: { id: true },
-                    });
-                    if (existing) return;
-                  }
+                schedaTasks.push(async () => {
+                  try {
+                    if (skipExistingSchede) {
+                      const existing = await prisma.scheda.findFirst({
+                        where: {
+                          poiId: capturedPoiId,
+                          narratorId: capturedNarratorId,
+                          language,
+                          projectId: id,
+                          lensId: capturedLensId,
+                          depth: "primary",
+                        },
+                        select: { id: true },
+                      });
+                      if (existing) return;
+                    }
 
-                  const narrator = narratorsRaw.find(
-                    (n) => n.id === capturedNarratorId,
-                  );
-                  if (!narrator) return;
+                    const narrator = narratorsRaw.find(
+                      (n) => n.id === capturedNarratorId,
+                    );
+                    if (!narrator) return;
 
-                  const durationTarget = poi.minStaySeconds ?? 75;
+                    const durationTarget = poi.minStaySeconds ?? 75;
 
-                  const userPrompt = `Progetto: ${project.name} · lingua: ${language}
+                    const lensSection = capturedLensId
+                      ? `\nLENTE EDITORIALE: ${capturedLensName} (id: ${capturedLensId})\nAdatta il tono e l'angolo narrativo a questa lente.`
+                      : "";
+
+                    const userPrompt = `Progetto: ${project.name} · lingua: ${language}
 
 POI: ${poi.name}${poi.description ? ` — ${poi.description}` : ""}
 Durata target: ~${durationTarget} secondi.
@@ -447,71 +474,76 @@ BRIEF:
 - Tipo esperienza: ${briefCtx.tipoEsperienza ?? "—"}
 ${briefCtx.mustTell?.length ? `- Must tell: ${briefCtx.mustTell.join(" / ")}` : ""}
 ${briefCtx.avoid?.length ? `- Avoid: ${briefCtx.avoid.join(" / ")}` : ""}
-
+${lensSection}
 BASE DI SIGNIFICATO (source of truth):
 ${JSON.stringify(semanticBase, null, 2)}
 
 Scrivi title + scriptText.`;
 
-                  const completion = await client.chat.completions.create({
-                    model,
-                    messages: [
-                      { role: "system", content: SYSTEM_SCHEDA },
-                      { role: "user", content: userPrompt },
-                    ],
-                    response_format: { type: "json_object" },
-                    temperature: 0.7,
-                  });
-
-                  const raw = completion.choices[0]?.message?.content ?? "{}";
-                  const parsed = JSON.parse(raw) as {
-                    title?: string;
-                    scriptText?: string;
-                  };
-                  const title = parsed.title ?? "";
-                  const scriptText = parsed.scriptText ?? "";
-
-                  // Persisti scheda — ignora se già esiste (P2002 unique constraint)
-                  await prisma.scheda
-                    .create({
-                      data: {
-                        projectId: id,
-                        poiId: capturedPoiId,
-                        narratorId: capturedNarratorId,
-                        language,
-                        title,
-                        scriptText,
-                        durationEstimateSeconds: wordsToSeconds(scriptText),
-                        semanticBaseJson: semanticBase as object,
-                        status: "draft",
-                        version: 1,
-                      },
-                    })
-                    .catch((e: { code?: string }) => {
-                      if (e?.code === "P2002") return null; // già esiste
-                      throw e;
+                    const completion = await client.chat.completions.create({
+                      model,
+                      messages: [
+                        { role: "system", content: SYSTEM_SCHEDA },
+                        { role: "user", content: userPrompt },
+                      ],
+                      response_format: { type: "json_object" },
+                      temperature: 0.7,
                     });
-                } catch (e) {
-                  errorCount++;
-                  send({
-                    type: "error",
-                    step: "scheda",
-                    poiId: capturedPoiId,
-                    narratorId: capturedNarratorId,
-                    error: String(e),
-                  });
-                } finally {
-                  schedaCompleted++;
-                  send({
-                    type: "progress",
-                    step: "scheda",
-                    poiId: capturedPoiId,
-                    narratorId: capturedNarratorId,
-                    completed: schedaCompleted,
-                    total: schedaTotal,
-                  });
-                }
-              });
+
+                    const raw = completion.choices[0]?.message?.content ?? "{}";
+                    const parsed = JSON.parse(raw) as {
+                      title?: string;
+                      scriptText?: string;
+                    };
+                    const title = parsed.title ?? "";
+                    const scriptText = parsed.scriptText ?? "";
+
+                    // Persisti scheda — ignora se già esiste (P2002 unique constraint)
+                    await prisma.scheda
+                      .create({
+                        data: {
+                          projectId: id,
+                          poiId: capturedPoiId,
+                          narratorId: capturedNarratorId,
+                          language,
+                          lensId: capturedLensId,
+                          depth: "primary",
+                          title,
+                          scriptText,
+                          durationEstimateSeconds: wordsToSeconds(scriptText),
+                          semanticBaseJson: semanticBase as object,
+                          status: "draft",
+                          version: 1,
+                        },
+                      })
+                      .catch((e: { code?: string }) => {
+                        if (e?.code === "P2002") return null; // già esiste
+                        throw e;
+                      });
+                  } catch (e) {
+                    errorCount++;
+                    send({
+                      type: "error",
+                      step: "scheda",
+                      poiId: capturedPoiId,
+                      narratorId: capturedNarratorId,
+                      lensId: capturedLensId,
+                      error: String(e),
+                    });
+                  } finally {
+                    schedaCompleted++;
+                    send({
+                      type: "progress",
+                      step: "scheda",
+                      poiId: capturedPoiId,
+                      narratorId: capturedNarratorId,
+                      lensId: capturedLensId,
+                      completed: schedaCompleted,
+                      total: schedaTotal,
+                    });
+                  }
+                });
+              }
             }
           }
 

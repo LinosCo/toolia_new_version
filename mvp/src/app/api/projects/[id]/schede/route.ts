@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError, requireRole } from "@/lib/rbac";
-import type { SchedaStatus } from "@/generated/prisma/enums";
+import type { SchedaDepth, SchedaStatus } from "@/generated/prisma/enums";
 
 const STATUSES: SchedaStatus[] = [
   "draft",
@@ -15,6 +15,8 @@ const SELECT = {
   id: true,
   poiId: true,
   narratorId: true,
+  lensId: true,
+  depth: true,
   language: true,
   title: true,
   scriptText: true,
@@ -63,11 +65,14 @@ export async function GET(
 
     const url = new URL(req.url);
     const status = url.searchParams.get("status") as SchedaStatus | null;
+    const lensIdFilter = url.searchParams.get("lensId");
 
-    const where: { projectId: string; status?: SchedaStatus } = {
+    const where: { projectId: string; status?: SchedaStatus; lensId?: string | null } = {
       projectId: id,
     };
     if (status && STATUSES.includes(status)) where.status = status;
+    if (lensIdFilter === "null") where.lensId = null;
+    else if (lensIdFilter) where.lensId = lensIdFilter;
 
     const schede = await prisma.scheda.findMany({
       where,
@@ -123,6 +128,15 @@ export async function POST(
     const narratorId =
       typeof body?.narratorId === "string" ? body.narratorId : "";
     const language = typeof body?.language === "string" ? body.language : "it";
+    const lensId =
+      typeof body?.lensId === "string" ? body.lensId : null;
+
+    const VALID_DEPTHS: SchedaDepth[] = ["primary", "deep_dive"];
+    const depth: SchedaDepth =
+      typeof body?.depth === "string" && VALID_DEPTHS.includes(body.depth as SchedaDepth)
+        ? (body.depth as SchedaDepth)
+        : "primary";
+
     if (!poiId || !narratorId) {
       return NextResponse.json(
         { error: "poi_or_narrator_missing" },
@@ -145,9 +159,9 @@ export async function POST(
       return NextResponse.json({ error: "invalid_refs" }, { status: 400 });
     }
 
-    // Esiste già? unique [poi, narrator, language]
+    // Esiste già? unique [poi, lensId, narrator, language, depth]
     const existing = await prisma.scheda.findFirst({
-      where: { poiId, narratorId, language },
+      where: { poiId, narratorId, language, lensId: lensId ?? null, depth },
       select: { id: true },
     });
     if (existing) {
@@ -182,6 +196,8 @@ export async function POST(
           poiId,
           narratorId,
           language,
+          lensId: lensId ?? null,
+          depth,
           title: typeof body?.title === "string" ? body.title : "",
           scriptText,
           durationEstimateSeconds:
