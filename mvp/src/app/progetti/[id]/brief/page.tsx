@@ -44,6 +44,7 @@ import {
 import { useDebouncedCallback } from "@/lib/hooks/use-debounce";
 import { loadApiKeys } from "@/lib/api-keys";
 import { cn } from "@/lib/utils";
+import { NarrativeTensionMap } from "@/components/narrative-tension-map";
 
 const TIPI_ESPERIENZA: {
   value: TipoEsperienza;
@@ -995,6 +996,13 @@ export default function BriefStepPage({
             </Section>
 
             <TensionMap brief={brief} facts={kb.facts} />
+
+            {/* Full CRUD tension map section — persisted via API */}
+            <NarrativeTensionMap
+              projectId={projectId}
+              brief={brief}
+              interviewTranscript={undefined}
+            />
           </>
         )}
       </main>
