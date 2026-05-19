@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 interface Body {
   apiKey?: string;
@@ -119,6 +120,16 @@ NON USARE: fotorealismo spinto, tratti caricaturali, stile cartoon infantile, ou
     if (!dataUrl) {
       return NextResponse.json({ error: "no_image_data" }, { status: 502 });
     }
+
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "generate-narrator-portrait",
+      provider: "openai",
+      model: "dall-e-3",
+      inputTokens: 0,
+      outputTokens: 0,
+    });
 
     return NextResponse.json({ portraitUrl: dataUrl });
   } catch (err) {

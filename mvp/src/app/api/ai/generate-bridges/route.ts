@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 type Provider = "kimi" | "openai";
 
@@ -133,6 +134,15 @@ Genera ${poiOrder.length - 1} bridge (uno per ogni transizione POI[i]→POI[i+1]
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "generate-bridges",
+      provider: provider,
+      model,
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     let parsed: { bridges?: unknown[] };
     try {
       parsed = JSON.parse(raw);

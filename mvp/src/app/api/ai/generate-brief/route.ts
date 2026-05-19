@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 type Provider = "kimi" | "openai";
 
@@ -232,6 +233,15 @@ export async function POST(req: NextRequest) {
     });
 
     const raw = completion.choices[0]?.message?.content;
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "generate-brief",
+      provider: provider,
+      model: modelFor(provider),
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     if (!raw) {
       return NextResponse.json({ error: "empty_response" }, { status: 502 });
     }
