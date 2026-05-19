@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey, type TenantApiProvider } from "@/lib/tenant-keys";
 
 type Provider = "kimi" | "openai";
 type Category = "solido" | "interpretazione" | "memoria" | "ipotesi";
@@ -161,10 +163,21 @@ function modelFor(provider: Provider): string {
 }
 
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
+  try {
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
   try {
     const body = await req.json();
     const {
-      apiKey,
+      apiKey: bodyApiKey,
       provider,
       projectName,
       type,
@@ -181,7 +194,7 @@ export async function POST(req: NextRequest) {
       source?: InputSource;
     } = body;
 
-    if (!apiKey || !provider) {
+    if (!provider) {
       return NextResponse.json(
         {
           error: "missing_api_key",
@@ -190,11 +203,26 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, provider as TenantApiProvider);
+    const apiKey = serverKey ?? bodyApiKey;
+
+    if (!apiKey) {
+      return NextResponse.json(
+        {
+          error: "missing_api_key",
+          message: `Nessuna chiave configurata per ${provider}`,
+        },
+        { status: 400 },
+      );
+    }
+
     if (!projectName || !source) {
       return NextResponse.json({ error: "missing_fields" }, { status: 400 });
     }
 
-    const { user, sourceIdHint } = buildPrompt(source, spatialHints, {
+    const { user: promptUser, sourceIdHint } = buildPrompt(source, spatialHints, {
       name: projectName,
       type,
       city,
@@ -208,7 +236,7 @@ export async function POST(req: NextRequest) {
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: SYSTEM },
-        { role: "user", content: user },
+        { role: "user", content: promptUser },
       ],
     });
 
