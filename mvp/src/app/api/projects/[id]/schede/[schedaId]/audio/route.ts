@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { getSessionUser, handleAuthError, requireRole } from "@/lib/rbac";
+import { getTenantApiKey } from "@/lib/tenant-keys";
 
 // Genera audio TTS via ElevenLabs per una scheda.
 // Modello eleven_multilingual_v2 per pronuncia italiana corretta.
@@ -56,10 +57,11 @@ export async function POST(
       );
     }
 
-    const apiKey = process.env.ELEVENLABS_API_KEY;
+    const tenantElKey = await getTenantApiKey(user.tenantId, "elevenlabs");
+    const apiKey = tenantElKey ?? process.env.ELEVENLABS_API_KEY;
     if (!apiKey) {
       return NextResponse.json(
-        { error: "no_api_key", message: "ELEVENLABS_API_KEY non configurata." },
+        { error: "no_api_key", message: "Nessuna chiave ElevenLabs configurata (tenant o ambiente)." },
         { status: 500 },
       );
     }
