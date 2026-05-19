@@ -211,7 +211,7 @@ export async function POST(
         }),
         prisma.editorialLens.findMany({
           where: { projectId: id },
-          select: { driverId: true, personaId: true, tone: true },
+          select: { primaryDriverId: true, secondaryDriverIds: true, personaIds: true, tone: true },
         }),
         prisma.path.findMany({
           where: { projectId: id, archived: false },
@@ -403,7 +403,10 @@ export async function POST(
     };
 
     const tone = lenses.find(
-      (l) => driverIds.includes(l.driverId) && l.personaId === body.personaId,
+      (l) =>
+        (l.primaryDriverId != null && driverIds.includes(l.primaryDriverId) ||
+          l.secondaryDriverIds.some((did) => driverIds.includes(did))) &&
+        (body.personaId == null || l.personaIds.includes(body.personaId)),
     )?.tone;
 
     const itinerary = selected.map((c, idx) => {
