@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey } from "@/lib/tenant-keys";
 
 const SYSTEM = `Sei un editor di audioguide culturali. Prepari un'intervista per il gestore/curatore/direttore di un luogo per raccogliere informazioni che NON si trovano nei documenti ufficiali: aneddoti, scelte editoriali, dettagli sensoriali, storie personali, cose a cui tiene particolarmente.
 Le domande devono essere specifiche al luogo (non generiche), aperte (richiedono racconto, non sì/no), una per argomento.`;
@@ -17,9 +19,21 @@ Rispondi ESCLUSIVAMENTE in JSON:
 { "questions": ["domanda 1", "domanda 2", ...] }`;
 
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
   try {
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
+  try {
+    const body = await req.json();
     const {
-      apiKey,
+      apiKey: bodyApiKey,
       projectName,
       type,
       city,
@@ -28,7 +42,11 @@ export async function POST(req: NextRequest) {
       documentsText,
       planimetriaDescription,
       spatialHints,
-    } = await req.json();
+    } = body;
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, "openai");
+    const apiKey = serverKey ?? bodyApiKey;
 
     if (!apiKey) {
       return NextResponse.json(

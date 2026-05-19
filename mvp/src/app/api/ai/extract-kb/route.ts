@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey } from "@/lib/tenant-keys";
 
 const SYSTEM = `Sei un analista di contenuti culturali. Trasformi fonti grezze (sito, documenti, intervista) in una lista di FATTI ATOMICI classificati.
 Ogni fatto è una frase autoconsistente, breve (10-40 parole), riferibile a una sola affermazione.
@@ -119,10 +121,21 @@ Quando due fonti contraddicono, PREFERISCI la fonte di peso maggiore; se pesi si
 };
 
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
+  try {
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
   try {
     const body = await req.json();
     const {
-      apiKey,
+      apiKey: bodyApiKey,
       projectName,
       type,
       city,
@@ -136,6 +149,10 @@ export async function POST(req: NextRequest) {
       poi?: { n: number; name: string }[];
       sources?: InputSource[];
     } = body;
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, "openai");
+    const apiKey = serverKey ?? bodyApiKey;
 
     if (!apiKey) {
       return NextResponse.json(

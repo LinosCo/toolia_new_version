@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getTenantApiKey } from "@/lib/tenant-keys";
 
 /* ============================================================
    PASS 1 — Descrizione generale del disegno
@@ -92,11 +94,28 @@ async function callVision(
 }
 
 export async function POST(req: NextRequest) {
+  // Auth + tenant resolution
+  let tenantId: string;
   try {
-    const { imageDataUrl, apiKey } = await req.json();
+    const user = await getSessionUser();
+    tenantId = user.tenantId;
+  } catch (err) {
+    const e = handleAuthError(err);
+    if (e) return e;
+    throw err;
+  }
+
+  try {
+    const body = await req.json();
+    const { imageDataUrl, apiKey: bodyApiKey } = body;
     if (!imageDataUrl || typeof imageDataUrl !== "string") {
       return NextResponse.json({ error: "missing image" }, { status: 400 });
     }
+
+    // Priority: server key > body key (transitional fallback)
+    const serverKey = await getTenantApiKey(tenantId, "openai");
+    const apiKey = serverKey ?? bodyApiKey;
+
     if (!apiKey || typeof apiKey !== "string") {
       return NextResponse.json(
         {
