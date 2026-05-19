@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 const SYSTEM = `Sei un editor di audioguide culturali. Prepari un'intervista per il gestore/curatore/direttore di un luogo per raccogliere informazioni che NON si trovano nei documenti ufficiali: aneddoti, scelte editoriali, dettagli sensoriali, storie personali, cose a cui tiene particolarmente.
 Le domande devono essere specifiche al luogo (non generiche), aperte (richiedono racconto, non sì/no), una per argomento.`;
@@ -96,6 +97,15 @@ export async function POST(req: NextRequest) {
     });
 
     const raw = completion.choices[0]?.message?.content;
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "interview-questions",
+      provider: "openai",
+      model: "gpt-4o-mini",
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     if (!raw) {
       return NextResponse.json({ error: "empty_response" }, { status: 502 });
     }

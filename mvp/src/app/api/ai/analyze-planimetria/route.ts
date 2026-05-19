@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 /* ============================================================
    PASS 1 — Descrizione generale del disegno
@@ -66,12 +67,18 @@ Niente testo fuori dal JSON. Niente markdown.`;
 
 type Hint = { name: string; description: string };
 
+interface VisionResult {
+  content: string | null;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 async function callVision(
   client: OpenAI,
   imageDataUrl: string,
   prompt: string,
   maxTokens: number,
-): Promise<string | null> {
+): Promise<VisionResult> {
   const completion = await client.chat.completions.create({
     model: "gpt-4o",
     temperature: 0.1,
@@ -90,7 +97,11 @@ async function callVision(
       },
     ],
   });
-  return completion.choices[0]?.message?.content ?? null;
+  return {
+    content: completion.choices[0]?.message?.content ?? null,
+    inputTokens: completion.usage?.prompt_tokens ?? 0,
+    outputTokens: completion.usage?.completion_tokens ?? 0,
+  };
 }
 
 export async function POST(req: NextRequest) {
@@ -129,10 +140,33 @@ export async function POST(req: NextRequest) {
     const client = new OpenAI({ apiKey });
 
     // Parallelizza le due chiamate Vision per ridurre latenza
-    const [descRaw, legendRaw] = await Promise.all([
+    const [descResult, legendResult] = await Promise.all([
       callVision(client, imageDataUrl, DESCRIPTION_PROMPT, 2000),
       callVision(client, imageDataUrl, LEGEND_PROMPT, 8000),
     ]);
+
+    // Log both vision calls
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "analyze-planimetria",
+      provider: "openai",
+      model: "gpt-4o",
+      inputTokens: descResult.inputTokens,
+      outputTokens: descResult.outputTokens,
+    });
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "analyze-planimetria",
+      provider: "openai",
+      model: "gpt-4o",
+      inputTokens: legendResult.inputTokens,
+      outputTokens: legendResult.outputTokens,
+    });
+
+    const descRaw = descResult.content;
+    const legendRaw = legendResult.content;
 
     if (!descRaw && !legendRaw) {
       return NextResponse.json({ error: "empty_response" }, { status: 502 });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 import { getTenantApiKey } from "@/lib/tenant-keys";
+import { logLlmCall } from "@/lib/llm-usage";
 
 const SYSTEM = `Sei un analista di contenuti culturali. Trasformi fonti grezze (sito, documenti, intervista) in una lista di FATTI ATOMICI classificati.
 Ogni fatto è una frase autoconsistente, breve (10-40 parole), riferibile a una sola affermazione.
@@ -198,6 +199,15 @@ export async function POST(req: NextRequest) {
     });
 
     const raw = completion.choices[0]?.message?.content;
+    await logLlmCall({
+      tenantId,
+      projectId: null,
+      operation: "extract-kb",
+      provider: "openai",
+      model: "gpt-4o",
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    });
     if (!raw) {
       return NextResponse.json({ error: "empty_response" }, { status: 502 });
     }
