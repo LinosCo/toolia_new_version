@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as cheerio from "cheerio";
+import { getSessionUser, requireRole, handleAuthError } from "@/lib/rbac";
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36";
@@ -266,6 +267,15 @@ async function tryFetchSitemap(origin: string): Promise<string[]> {
 }
 
 export async function POST(req: NextRequest) {
+  try {
+    const user = await getSessionUser();
+    requireRole(user, ["Admin", "Editor"]);
+  } catch (err) {
+    const errResponse = handleAuthError(err);
+    if (errResponse) return errResponse;
+    throw err;
+  }
+
   try {
     const { url } = await req.json();
     if (!url || typeof url !== "string") {
