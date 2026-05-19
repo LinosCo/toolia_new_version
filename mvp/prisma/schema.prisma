@@ -601,6 +601,9 @@ model AudioAsset {
 // JOB — task asincroni (LLM, TTS, export)
 // ============================================================
 
+// Reserved for future async export/import + long-running operations.
+// MVP uses inline maxDuration + SSE streaming for bulk operations
+// (see api/projects/[id]/schede/bulk-generate). Currently unused.
 model Job {
   id          String    @id @default(cuid())
   tenantId    String
