@@ -14,6 +14,8 @@ export function getTestPrisma(): PrismaClient {
 
 export async function resetDb(): Promise<void> {
   const prisma = getTestPrisma();
+  await prisma.segment.deleteMany();
+  await prisma.mapNode.deleteMany();
   await prisma.llmUsage.deleteMany();
   await prisma.audioAsset.deleteMany();
   await prisma.scheda.deleteMany();

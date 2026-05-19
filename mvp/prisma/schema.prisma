@@ -117,6 +117,8 @@ model Project {
   zones        Zone[]
   pois         POI[]
   anchors      MapAnchor[]
+  mapNodes     MapNode[]
+  segments     Segment[]
   drivers      Driver[]
   personas     Persona[]
   lenses       EditorialLens[]
@@ -302,6 +304,8 @@ model POI {
   project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   zoneId          String?
   zone            Zone?    @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  nodeId          String?
+  node            MapNode? @relation("POIOnNode", fields: [nodeId], references: [id], onDelete: SetNull)
   name            String
   type            PoiType  @default(indoor)
   lat             Float?
@@ -322,6 +326,7 @@ model POI {
 
   @@index([projectId])
   @@index([zoneId])
+  @@index([nodeId])
 }
 
 enum PoiType {
@@ -667,4 +672,62 @@ model LlmUsage {
 
   @@index([tenantId, createdAt])
   @@index([projectId])
+}
+
+// ============================================================
+// SEGMENT GRAPH (Fase 1.1) — verità spaziale del progetto
+// ============================================================
+
+model MapNode {
+  id           String   @id @default(cuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind         NodeKind
+  lat          Float?
+  lng          Float?
+  planimetriaX Float?
+  planimetriaY Float?
+  label        String?
+  orderIndex   Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  segmentsFrom Segment[] @relation("SegmentFrom")
+  segmentsTo   Segment[] @relation("SegmentTo")
+  poisHere     POI[]    @relation("POIOnNode")
+  @@index([projectId])
+}
+
+enum NodeKind {
+  accesso
+  bivio
+  transizione
+  rientro
+}
+
+model Segment {
+  id            String      @id @default(cuid())
+  projectId     String
+  project       Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  fromNodeId    String
+  fromNode      MapNode     @relation("SegmentFrom", fields: [fromNodeId], references: [id], onDelete: Cascade)
+  toNodeId      String
+  toNode        MapNode     @relation("SegmentTo", fields: [toNodeId], references: [id], onDelete: Cascade)
+  kind          SegmentKind
+  traversalSec  Int?
+  detourCost    Float?
+  poiIds        String[]    @default([])
+  bidirectional Boolean     @default(true)
+  label         String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  @@index([projectId])
+  @@index([fromNodeId])
+  @@index([toNodeId])
+}
+
+enum SegmentKind {
+  passaggio
+  ramo
+  loop
+  connessione
 }
