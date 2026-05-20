@@ -56,7 +56,7 @@ describe("indexSource", () => {
 
     const n = await indexSource({
       tenantId, projectId: project.id, sourceType: "KB_FACT", sourceId: "fact1",
-      text: "a".repeat(250),
+      text: "a".repeat(5000),
     });
 
     const stored = await prisma.contentEmbedding.findMany({ where: { sourceId: "fact1" } });

@@ -4,7 +4,7 @@ import { createEmbeddings, EMBEDDING_MODEL, EMBEDDING_DIM } from "@/lib/content/
 
 type SourceType = "KB_FACT" | "POI_SEMANTIC" | "BRIEF" | "TENSION" | "SCHEDA" | "SOURCE";
 
-const CHUNK = { size: 200, overlap: 20 };
+const CHUNK = { size: 2000, overlap: 200 };
 
 export interface IndexSourceArgs {
   tenantId: string;
