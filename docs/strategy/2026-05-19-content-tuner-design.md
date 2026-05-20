@@ -655,6 +655,8 @@ Differenza marginale ($0.21) per ottenere **identità preservata** + **provenanc
 
 ## 9. Deep dive: RAG content engine
 
+> **Aggiornamento 2026-05-20 — il cervello a 4 strati.** Il content engine non è "RAG → un prompt → testo": è un **orchestratore a 4 strati** (assemblaggio contesto → pianificazione sistemica → produttori verticali → gate di verifica) che fonde strategia e storytelling senza dispersione, alimentato da 5 input-dati (ProjectTip, KB+tension map, BrandSkill+memoria progetto, performance/"cosa funziona", signals autorevoli/competitor) × **craft** (Craft Library: playbook + profili canale + trend di formato). Anti-dispersione = provenienza + RAG + tension map come contratto (`mustTell`/`avoid`/`verify`); apprendimento dagli esiti in-context (no fine-tuning); **pipeline con loop di critica mirati** (no full-agentic). La RAG descritta sotto è lo Strato 0/1 (recupero materiale). **Architettura completa**: [`2026-05-20-suite-architecture-cervello-flywheel.md`](./2026-05-20-suite-architecture-cervello-flywheel.md) §6-7.
+
 ### Embedding pipeline (jobs async)
 
 ```
@@ -855,19 +857,21 @@ Per immagini: `manifest.imagery.byPostType` viene mappato a Modalità (B/C) + re
 
 ## 11. Integrazioni cross-product (post-monorepo)
 
+> **Aggiornamento 2026-05-20 — non un tubo, un cervello condiviso.** L'integrazione BT↔CT non è "BT esporta, CT importa": è un **flywheel** su un layer di conoscenza condiviso (vedi [doc keystone](./2026-05-20-suite-architecture-cervello-flywheel.md)). Il `ContentBrief` qui sotto **= `ProjectTip` generalizzato** (BT ce l'ha già completo: generazione, evidenza, esecuzione, attribuzione). Non si crea un'entità nuova: `ProjectTip` diventa oggetto condiviso, BT lo genera+misura, CT è il backend di produzione (il cervello §9). Le righe sotto restano valide come *eventi di trigger*, ma l'oggetto è `ProjectTip`, non un brief separato.
+
 ### Bridge BT → CT (insights flow)
 
-BT pubblica eventi via `@voler/bridge`:
+BT pubblica eventi via `@voler/bridge` (trigger; l'oggetto trasportato è `ProjectTip`):
 - `strategy.insight.published` — quando il copilot strategico produce un'azione concreta
 - `signal.high_relevance` — quando un segnale ha rilevanza > threshold
 - `competitor.action.detected` — quando un competitor pubblica qualcosa rilevante
 - `persona.behavior.shift` — quando l'analytics rileva cambio comportamento persona
 
 CT subscribe (in `apps/content-tuner/api/webhooks/bridge.ts`):
-1. Riceve evento
-2. Converte in `ContentBrief` (entità leggera che propone "produci contenuto X")
-3. Notifica utente CT via in-app inbox
-4. L'operatore può accept → genera ContentDraft, decline, defer
+1. Riceve evento → il `ProjectTip` (con evidenza, target, KB di supporto, brand voice)
+2. Entra nella **coda Opportunità** (assistito di default; coda proattiva opt-in)
+3. L'operatore accept → il **cervello a 4 strati** (§9) produce l'artifact legato al `tipId`; oppure decline/defer
+4. Su publish, le metriche rientrano in BT (`TipPerformanceSnapshot`) → il loop apprende
 
 ### Bridge CT → ET (DeliveryPack)
 
@@ -892,12 +896,17 @@ BT subscribe per:
 
 ### Connessioni esterne
 
-Integrazioni outbound CT (Fase 2+ post-launch):
-- WordPress (via MCP, riuso BT)
-- Buffer / Hootsuite (REST API per scheduling)
-- Mailchimp (REST API per newsletter)
-- Notion (database sync)
-- Slack (notification on `client_review` o `published`)
+**Presenti e cablate (riuso da BT, via `@voler/connectors`)**: Meta/IG, LinkedIn, WordPress, WooCommerce, Brevo (email), GA4, Search Console, n8n.
+
+**Auspicabili (in ordine di valore per cultura/heritage/prodotto)**:
+- **Google Reviews + TripAdvisor** — #1 voice-of-customer + social proof (alimenta BT signal *e* CT testimonial/FAQ)
+- **Google Business Profile** — presenza locale + SEO locale
+- **Biglietteria / booking** — chiude il loop ET (contenuto → visite)
+- **CRM** (HubSpot/Pipedrive) — lead veri per il segmento prodotto/servizio
+- **Social estesi** (TikTok, YouTube, Pinterest, X) — ampiezza distribuzione
+- **Shopify** (oltre Woo) — e-comm prodotto
+
+Dettaglio + razionale: [doc keystone](./2026-05-20-suite-architecture-cervello-flywheel.md) §8.
 
 ---
 

@@ -315,6 +315,23 @@ Analisi di accoppiamento (codice `ai-interviewer`):
 
 Essendo **sottodomini** di `voler.ai` (non domini da acquistare), il typo-catch `contentuner` → `contenttuner` è gratuito (solo DNS + redirect).
 
+### 4.10 Cervello condiviso, flywheel e `ProjectTip` (integrazione BT↔CT)
+
+> **Documento di dettaglio:** [`2026-05-20-suite-architecture-cervello-flywheel.md`](./2026-05-20-suite-architecture-cervello-flywheel.md). Qui solo i principi.
+
+BT e CT non sono due silos con un tubo: sono un **flywheel** (capire → produrre → distribuire → misurare → capire meglio) su un **cervello condiviso**. La divisione regge perché sono mestieri diversi (BT = *capire/decidere/misurare*, CT = *produrre/distribuire*) vendibili separati, ma valgono di più insieme grazie al loop + agli asset condivisi.
+
+**Shared Knowledge Layer a 2 strati**: materiale di produzione (KB, dati sito, fonti, BrandSkill — CT consuma diretto) vs intelligence di steering (visibility, competitors, signals, performance — BT decide, arriva a CT come direzione). Principio: *"cosa fare" in BT, "come/cosa dire" in CT.*
+
+**3 bucket** (regola: nel layer condiviso se >1 prodotto lo usa o produce un asset condiviso):
+- **BT-owned**: interview, chatbot, training, copilot, visibility, site-analysis (tool), competitors, tips (generazione), proactive, signals/reasoning, results.
+- **CT-owned**: content engine, KB/RAG, lenti/tension, media pipeline, workflow, calendario + **migrati da BT** (social-hub, cms, media, templates, content, tone).
+- **SHARED**: brand distillation (`@voler/brand-voice`), connectors+OAuth (`@voler/connectors`), orchestrazione/publishing, **`ProjectTip`** (oggetto-opportunità), **Craft Library** (`@voler/craft`), knowledge layer (KB, signals, personas, performance).
+
+**`ProjectTip` = il "Content Brief" condiviso (già esistente in BT)**: BT ha già il loop completo tip→contenuto→pubblica→misura (`ProjectTip` + `triggerRun` + `TipPerformanceSnapshot`). Si **generalizza**, non si reinventa: BT genera e misura, CT produce; `TipData` → `ProductionRequest` generico; nuovo routing "produci in CT". Automazione: **assistito di default + coda proattiva opt-in**, mai full-auto.
+
+**Il cervello di produzione di CT** è un orchestratore a 4 strati (contesto → pianificazione sistemica → produttori verticali → gate di verifica) alimentato da 5 input-dati (ProjectTip, KB+tension, BrandSkill+memoria, performance, signals) × craft (Craft Library), con anti-dispersione (provenienza + RAG + tension map come contratto), apprendimento dagli esiti in-context e pipeline con loop di critica mirati. Dettaglio nel doc keystone e in [content-tuner-design](./2026-05-19-content-tuner-design.md) §9.
+
 ---
 
 ## 5. Decisioni di prodotto chiave

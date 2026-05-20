@@ -27,7 +27,7 @@ La v1 si era scollata dai numeri **reali e in produzione** di Business Tuner. Co
 
 `Voler.ai NON è un puro self-serve SaaS, ma nemmeno una software house.` È un **tech-enabled service** con **atterraggio leggero**.
 
-Quattro verità che guidano il modello:
+Cinque verità che guidano il modello:
 
 1. **Il setup è skilled work** — costruire una KB CT di qualità (lenti + tension map + brand voice) o configurare gli interview bot BT richiede expertise. Ma per l'entry deve essere **leggero ed economico**, non un progetto da €16k.
 
@@ -36,6 +36,12 @@ Quattro verità che guidano il modello:
 3. **Deve costare meno di un freelance/agenzia digital** (~€500–1.500/mese in Italia). Questa è l'àncora di prezzo dell'entry. Si "atterra leggeri" e si espande col consumo — non si parte pesanti.
 
 4. **Molti clienti target non hanno team interno** — vogliono che qualcuno faccia il lavoro (retainer done-for-you, opzionale).
+
+5. **Asset condivisi = moat + valore del bundle.** La **Craft Library** (playbook storytelling + profili canale + trend, vedi [doc keystone](./2026-05-20-suite-architecture-cervello-flywheel.md) §7), curata da Voler e riusata su ogni cliente, migliora nel tempo: è un vantaggio difendibile, non solo un costo. E gli asset costruiti una volta (BrandSkill, KB, connectors, Craft Library) sono ciò che rende il **bundle più della somma**: chi ha BT+CT li condivide invece di rifarli.
+
+### Perché il bundle vale più della somma (razionale)
+
+BT e CT formano un **flywheel** (capire → produrre → distribuire → misurare → capire meglio) su un cervello condiviso. Il premio del bundle non è uno sconto: è il **loop vivo** (CT produce ciò che i dati BT dicono, e la performance torna a BT per ricalibrare) + gli **asset condivisi**. Conseguenza pricing: il **bridge è on di default** nel bundle (è la ragione del bundle), e CT-con-BT è strettamente migliore di CT-solo → upsell naturale in entrambe le direzioni. Dettaglio: [doc keystone](./2026-05-20-suite-architecture-cervello-flywheel.md) §10.
 
 ---
 
@@ -308,6 +314,10 @@ LTV 24 mesi: ~€28.000–40.000
 4. **`@voler/billing` package**: estrae il credit system BT, integra `LlmUsage` (Toolia) per cost mapping, aggiunge feature gating per tier. Cost mapping in **config** (markup 4x, €0,006/credito), non hardcoded.
 
 5. **Stripe products**: ristrutturare i prodotti BT per i nuovi tier (Scale) + credit packs; activation/retainer/WT restano fuori da Stripe self-serve (sales-led, fatturazione manuale o checkout custom).
+
+6. **Cervello CT a 4 strati = costo crediti più alto per contenuto**: il loop di critica + multi-modello (vedi [doc keystone](./2026-05-20-suite-architecture-cervello-flywheel.md) §6) alza il costo reale per contenuto di qualità → calibrare il costo-azione in crediti di conseguenza (un contenuto "premium" costa più di una bozza semplice — corretto e trasparente).
+
+7. **Accesso al layer condiviso da CT** (performance + signals): entità lette dal cervello CT (DB unico post-monorepo / bridge API pre-monorepo). Più i gap di build elencati nel doc keystone §9 (engagement social per-post, commenti→contenuto, CRM per i lead, `TipData`→`ProductionRequest`).
 
 ---
 
