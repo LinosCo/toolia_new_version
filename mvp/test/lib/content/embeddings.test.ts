@@ -1,13 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockCreate = vi.fn();
-vi.mock("openai", () => {
-  return {
-    default: vi.fn(function() {
-      this.embeddings = { create: mockCreate };
-    }),
-  };
-});
+vi.mock("openai", () => ({
+  default: class {
+    embeddings = { create: mockCreate };
+  },
+}));
 vi.mock("@/lib/tenant-keys", () => ({ getTenantApiKey: vi.fn() }));
 vi.mock("@/lib/llm-usage", () => ({ logLlmCall: vi.fn() }));
 
