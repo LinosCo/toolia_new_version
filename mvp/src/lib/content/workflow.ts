@@ -41,3 +41,12 @@ export function allowedTransitions(from: DraftStatus, role: Role): Transition[] 
 export function canTransition(role: Role, from: DraftStatus, to: DraftStatus): boolean {
   return allowedTransitions(from, role).some((t) => t.to === to);
 }
+
+/**
+ * Tutte le transizioni possibili da uno stato, A PRESCINDERE dal ruolo.
+ * La UI le mostra come pulsanti; l'API applica il controllo ruolo (403) via canTransition.
+ * Unica fonte di verità: la UI non duplica la tabella.
+ */
+export function transitionsFrom(from: DraftStatus): { to: DraftStatus; label: string }[] {
+  return (TRANSITIONS[from] ?? []).map((t) => ({ to: t.to, label: t.label }));
+}

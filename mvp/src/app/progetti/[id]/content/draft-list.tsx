@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, Check, X, Calendar as CalIcon } from "lucide-react";
+import { transitionsFrom, type DraftStatus } from "@/lib/content/workflow";
 
-type Status = "draft" | "in_review" | "client_review" | "published" | "archived";
+type Status = DraftStatus;
 interface DraftRow { id: string; title: string; format: string; status: Status; scheduledAt: string | null; verificationJson: { passed?: boolean } | null; updatedAt: string }
 
 const STATUS_LABEL: Record<Status, string> = { draft: "Bozza", in_review: "In revisione", client_review: "Al cliente", published: "Pubblicata", archived: "Archiviata" };
@@ -18,15 +19,6 @@ const FILTERS: Array<{ key: Status | "all"; label: string }> = [
   { key: "all", label: "Tutte" }, { key: "draft", label: "Bozza" }, { key: "in_review", label: "In revisione" },
   { key: "client_review", label: "Al cliente" }, { key: "published", label: "Pubblicata" }, { key: "archived", label: "Archiviata" },
 ];
-
-interface TransitionOpt { to: Status; label: string }
-const NEXT: Record<Status, TransitionOpt[]> = {
-  draft: [{ to: "in_review", label: "Manda in revisione" }, { to: "archived", label: "Archivia" }],
-  in_review: [{ to: "client_review", label: "Manda al cliente" }, { to: "published", label: "Pubblica" }, { to: "draft", label: "Rimanda in bozza" }],
-  client_review: [{ to: "published", label: "Pubblica" }, { to: "in_review", label: "Richiedi modifiche" }],
-  published: [{ to: "archived", label: "Archivia" }],
-  archived: [{ to: "draft", label: "Ripristina" }],
-};
 
 export function DraftList({ projectId }: { projectId: string }) {
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
@@ -94,7 +86,7 @@ export function DraftList({ projectId }: { projectId: string }) {
                 <h3 className="truncate text-sm font-medium">{d.title}</h3>
               </div>
               <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                {NEXT[d.status].map((t) => (
+                {transitionsFrom(d.status).map((t) => (
                   <button key={t.to} onClick={() => transition(d.id, t.to)} disabled={busy === d.id}
                     className="rounded-full border border-border px-2.5 py-1 text-xs font-medium hover:bg-muted disabled:opacity-50">
                     {busy === d.id ? <Loader2 className="size-3 animate-spin" /> : t.label}
