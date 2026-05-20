@@ -144,33 +144,33 @@ Le "regole d'ingaggio" per produrre contenuti.
 ### Cluster 4 — Content Engine (RAG)
 Come si produce un contenuto.
 
-- **Vector indexing**: pgvector indicizza KBFact + semantic base + brief + tension items con `text-embedding-3-small`
+- **Vector indexing**: pgvector indicizza KBFact + semantic base + brief + tension items con `text-embedding-3-large` (Pro tier) / `text-embedding-3-small` (Starter tier) — vedi [modelli-ai-reference](./2026-05-20-modelli-ai-reference.md)
 - **Retrieval API**: semantic search con scope/filter (per canale, per persona, per affidabilità)
 - **Content templates**: 15+ template strutturati (caption IG, post X, articolo blog, brochure paragraph, press release, email campaign, web hero, audio promo script, product description, case study, FAQ, ecc.)
 - **Content orchestrator**: pipeline che combina (retrieved chunks + template prompt + brand voice + tension constraints) → output strutturato
-- **Multi-provider LLM**: OpenAI default, Anthropic per long-form blog, Kimi per budget tier — configurable per template
+- **Multi-provider LLM** (maggio 2026): default `claude-sonnet-4-6`, long-form `claude-opus-4-7`, quick tasks `claude-haiku-4-5`, reasoning-heavy `gpt-5-5`, multimodal `gemini-3-1-pro` — configurable per template/tier via `@voler/ai` router
 
 ### Cluster 5 — Media Pipeline (preservation-first)
 Come si producono immagini, audio, video.
 
 #### 5.A Modalità Generation (immagine da zero)
-- gpt-image-1 → fallback DALL-E 3 → Gemini 2.5
+- **Nano Banana Pro → GPT Image 2 → FLUX.2 [pro]** (cascade maggio 2026)
 - Use case: hero abstract, concept illustration, infografica
 - Cost: $0.04-0.08/img
 - **Sempre etichettata** "Immagine AI generata"
 
 #### 5.B Modalità Preservation Edit (foto reale + treatment)
-- Flux Kontext primary → gpt-image-1 edit → Gemini edit fallback
+- **FLUX.2 [max] → GPT Image 2 edit → Nano Banana Pro edit** (cascade maggio 2026; FLUX Kontext deprecato, FLUX.2 è il successor)
 - Input: photo source + edit instructions + brand overlay
-- **Identity preservation check obbligatorio** (gpt-4o-vision compara source vs output)
+- **Identity preservation check obbligatorio** (`gemini-3-1-pro` o `claude-opus-4-7` vision compara source vs output)
 - Use case: foto reale del museo con treatment editoriale magazine
-- Cost: $0.05/img + identity check ~$0.01
+- Cost: $0.05-0.08/img + identity check ~$0.01
 
 #### 5.C Modalità Reference Style Transfer
-- Flux Kontext con reference image → Stable Diffusion + IP-Adapter fallback
+- **Nano Banana Pro (14 reference) → FLUX.2 [max] (10 reference)** (cascade maggio 2026)
 - Input: photo source (subject) + reference image (style)
 - Use case: 50 post Instagram con stesso stile editoriale ma soggetti reali diversi
-- Cost: $0.05/img
+- Cost: $0.04-0.08/img
 
 #### 5.D Modalità Layout Render
 - HTML/CSS template → Puppeteer headless → PNG/PDF
@@ -355,7 +355,7 @@ model ContentMediaAsset {
   templateId      String?
   template        VisualTemplate? @relation(...)
   provider        String   // openai | anthropic | replicate | gemini
-  model           String   // gpt-image-1 | flux-kontext | dall-e-3
+  model           String   // nano-banana-pro | gpt-image-2 | flux-2-max
   promptOrInstructions String  @db.Text
   outputUrl       String   // R2 URL
   preservationCheckPassed Boolean?
@@ -425,10 +425,10 @@ enum VisualTemplateKind { MODE_A_PROMPT MODE_B_EDIT MODE_C_REFERENCE MODE_D_LAYO
 | Linter | ESLint + Prettier | Standard |
 | Validation | Zod | Già in BT + Toolia |
 | Monorepo | Turborepo + pnpm workspaces (post-refactor) | Industry standard |
-| LLM providers | OpenAI primary, Anthropic per long-form, Kimi per budget | Multi-provider con `@voler/ai` abstraction |
-| Embedding | OpenAI `text-embedding-3-small` (1536 dims) | $0.02/1M token, eccellente rapporto |
-| Media gen | gpt-image-1 + DALL-E 3 + Gemini + Flux Kontext (Replicate) + SDXL (Replicate) | Cascade pattern di BT |
-| TTS | ElevenLabs `eleven_multilingual_v2` | Già in Toolia per audio audioguida |
+| LLM providers | Claude Sonnet 4.6 default / Opus 4.7 long-form / Haiku 4.5 quick / GPT-5.5 reasoning / Gemini 3.1 Pro multimodal | Multi-provider router `@voler/ai`. Vedi [modelli-ai-reference](./2026-05-20-modelli-ai-reference.md) |
+| Embedding | `text-embedding-3-large` (3072, Pro) / `text-embedding-3-small` (1536, Starter) | Large default per qualità, small per budget |
+| Media gen | Nano Banana Pro + GPT Image 2 + FLUX.2 [pro/max] (Replicate) + Stable Diffusion 3.5 (Replicate) | Cascade pattern. FLUX Kontext → FLUX.2 |
+| TTS | ElevenLabs Eleven v3 (long-form/promo) + Cartesia Sonic-3 (real-time chatbot) | Eleven v3 più espressivo, Sonic-3 40ms latency |
 | Hosting | Railway (Toolia pattern) o Vercel (BT pattern) — TBD per CT | Decidere durante refactor monorepo |
 | CI/CD | GitHub Actions + Turbo cache | Da definire |
 | Lockfile | **`pnpm-lock.yaml`** (mandatorio dal day-one) | Disciplina mancante in BT |
@@ -582,9 +582,10 @@ Già descritta in [decisioni-strategiche.md](2026-05-19-decisioni-strategiche.md
 // @voler/media-pipeline strategy
 
 const PROVIDERS = {
-  GENERATION: ["openai:gpt-image-1", "openai:dall-e-3", "gemini:imagen-3"],
-  PRESERVATION_EDIT: ["replicate:flux-kontext", "openai:gpt-image-1-edit", "gemini:image-edit"],
-  STYLE_TRANSFER: ["replicate:flux-kontext-ref", "replicate:sdxl-ip-adapter"],
+  // maggio 2026 — vedi 2026-05-20-modelli-ai-reference.md
+  GENERATION: ["gemini:nano-banana-pro", "openai:gpt-image-2", "replicate:flux-2-pro"],
+  PRESERVATION_EDIT: ["replicate:flux-2-max", "openai:gpt-image-2-edit", "gemini:nano-banana-pro-edit"],
+  STYLE_TRANSFER: ["gemini:nano-banana-pro-ref", "replicate:flux-2-max-ref"],
   LAYOUT: ["puppeteer-render"], // server-side rendering, no LLM call
 };
 
@@ -599,8 +600,9 @@ async function checkIdentityPreservation(
   sourceUrl: string,
   outputUrl: string,
 ): Promise<PreservationResult> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
+  // Vision model: gemini-3-1-pro primary (multimodal) o claude-opus-4-7 fallback
+  const response = await visionClient.complete({
+    model: "gemini-3-1-pro",
     messages: [
       { role: "system", content: PRESERVATION_CHECK_SYSTEM_PROMPT },
       {
@@ -638,7 +640,7 @@ UI: se `preserved=false` o `confidence<0.7`, badge rosso "Verifica manuale richi
 Stima per "20 post Instagram con preservation":
 - 20 × Modalità B (preservation edit) = $1.00
 - 20 × identity check = $0.20
-- 20 × caption text gen (gpt-4o, ~1000 token in + 200 out) = $0.05
+- 20 × caption text gen (claude-sonnet-4-6, ~1000 token in + 200 out) = $0.06
 - 20 × hashtag gen = $0.01
 - **Totale media: ~$1.26**
 
@@ -665,7 +667,7 @@ pg-boss enqueue: "content-embedding-reindex"
 worker-jobs/embedding-worker.ts:
    1. Fetch updated source
    2. Chunk if > 500 token (sliding window 400+100 overlap)
-   3. Per chunk: call OpenAI text-embedding-3-small
+   3. Per chunk: call OpenAI text-embedding-3-large (Pro) / text-embedding-3-small (Starter)
    4. Upsert ContentEmbedding (delete old chunks for same sourceId, insert new)
    │
    ▼
@@ -735,7 +737,7 @@ Orchestrator:
         - {{constraints}} = avoid + verify
    7. Call LLM with promptSystem + promptUser
    8. Parse response (validated against template.outputSchema with Zod)
-   9. Hallucination check (gpt-4o-mini) — compare output vs KBFact pool
+   9. Hallucination check (claude-haiku-4-5) — compare output vs KBFact pool
    10. Persist ContentDraft + ContentMediaAsset (if media included)
    11. retrievalLog stored as provenance
    │
@@ -759,7 +761,7 @@ const llm = await aiClient.complete({
 });
 
 // Internal:
-// "auto" + tier=pro → openai:gpt-4o
+// "auto" + tier=pro → anthropic:claude-sonnet-4-6
 // "auto" + tier=enterprise + task=blog_longform → anthropic:claude-sonnet-4-7
 // "auto" + tier=starter → kimi:moonshot-v1-128k
 ```
@@ -794,7 +796,7 @@ Per ogni BrandAsset, un job estrae BrandEvidence:
 Quando l'operatore clicca "Distilla brand voice X" dopo aver caricato ≥3 BrandAsset:
 
 ```
-Distiller LLM call (gpt-4o):
+Distiller LLM call (claude-opus-4-7, per qualità distillation):
   Input: tutti i BrandEvidence linked
   Output: BrandSkill.manifestJson = {
     palette: {
@@ -1007,11 +1009,11 @@ Cose ancora aperte che richiedono decisione:
 
 5. **Storage R2**: bucket condiviso fra BT + CT + ET o bucket separati? Lean verso **bucket per app** con prefix `{tenant}/{project}/` per isolation.
 
-6. **Embedding model upgrade path**: oggi `text-embedding-3-small`. Quando upgrade a future modelli? Strategia: track embedding model version su ContentEmbedding, re-index automatico quando configuriamo upgrade.
+6. **Embedding model upgrade path**: oggi `text-embedding-3-large` (Pro) / `-small` (Starter). `text-embedding-4` in monitoraggio. Strategia: track embedding model version su ContentEmbedding, re-index automatico quando configuriamo upgrade.
 
 7. **Multi-language support**: CT genera già contenuti in N lingue ma la UI di CT è italiana. Roadmap i18n CT UI?
 
-8. **Replicate vs Hosted Inference**: per Flux Kontext / SDXL, partiamo da Replicate (paghi per-use). Quando volume cresce, valutare self-hosting (modal.com, fly.io, ecc.).
+8. **Replicate vs Hosted Inference**: per FLUX.2 [pro/max] / Stable Diffusion 3.5, partiamo da Replicate (paghi per-use). Quando volume cresce (>10k img/mese), valutare self-hosting (modal.com, fly.io, ecc.) o FLUX.2 [klein] open-weight.
 
 9. **Identity preservation threshold**: 0.7 di confidence è default. Configurable per tenant? Per template? Decidere durante 2.7.
 
