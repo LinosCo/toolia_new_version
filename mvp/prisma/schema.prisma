@@ -916,9 +916,11 @@ model ContentDraft {
   citationsJson    Json               @default("[]") @map("citations_json")
   model            String?
   version          Int                @default(1)
+  scheduledAt      DateTime?          @map("scheduled_at")
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@index([projectId, status])
+  @@index([projectId, scheduledAt])
   @@map("content_drafts")
 }
