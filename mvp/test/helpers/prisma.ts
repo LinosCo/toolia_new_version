@@ -14,6 +14,7 @@ export function getTestPrisma(): PrismaClient {
 
 export async function resetDb(): Promise<void> {
   const prisma = getTestPrisma();
+  await prisma.contentEmbedding.deleteMany();
   await prisma.segment.deleteMany();
   await prisma.mapNode.deleteMany();
   await prisma.llmUsage.deleteMany();
