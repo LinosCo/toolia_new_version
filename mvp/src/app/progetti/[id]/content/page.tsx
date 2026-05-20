@@ -1,4 +1,5 @@
 import { RetrievalPlayground } from "./retrieval-playground";
+import { GeneratePanel } from "./generate-panel";
 
 export default async function ContentPage({
   params,
@@ -18,6 +19,7 @@ export default async function ContentPage({
         </p>
       </header>
       <RetrievalPlayground projectId={id} />
+      <GeneratePanel projectId={id} />
     </main>
   );
 }
