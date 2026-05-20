@@ -14,7 +14,12 @@ Voler.ai diventa una **suite di prodotti business** sotto un brand ombrello. Tre
 
 **Promessa**: "Sintonizza la tua strategia"
 
-**Cosa fa**: Monitoraggio posizionamento brand (SERP, social, AI), interviste qualitative AI, copilot strategico, analisi competitor, suggerimento di azioni operative misurate (Results Hub).
+**Cosa fa**: BT è 3 capability in un prodotto:
+- **Intelligence**: monitoraggio posizionamento brand (SERP, social, AI), analisi competitor, visibility scan
+- **Conversation**: interview engine AI (interviste qualitative 24/7), training bot (formazione aziendale con scoring), chatbot multilingua (data collection), copilot chat
+- **Strategy**: copilot strategico, tips engine, suggerimento azioni operative misurate (Results Hub)
+
+> **Nota** (aggiornamento 2026-05-20): i tool conversational (interview/training/chatbot) RESTANO dentro BT — confermato. BT non è "solo intelligence", è anche la piattaforma conversational AI della suite.
 
 **Target**: PMI, consulenti, agenzie marketing, marketing manager interni.
 
@@ -73,7 +78,19 @@ Voler.ai diventa una **suite di prodotti business** sotto un brand ombrello. Tre
 - Dominio: `experiencetuner.voler.ai` o `toolia.app` (se vogliamo mantenere "Toolia" come heritage name del visitor app)
 - Status: codice esiste già (visitor app `/v/[id]` in Toolia), da estrarre e brandizzare
 
-### 1.4 Suite umbrella
+### 1.4 Web Tuner (WT) — Digital presence (aggiunto 2026-05-20)
+
+**Promessa**: "Sintonizza la tua presenza digitale"
+
+**Cosa fa**: Sito web AI-native managed. Costruito incrociando strategia BT + contenuti CT, con **loop di ottimizzazione continua** (BT insights → CT content → publish → measure → BT). React/Next.js, custom domain, SEO continuo.
+
+**Modello**: NON puro SaaS self-serve. È un **"managed product" (tech-enabled service)**: il prodotto ricorrente è il loop AI management; il design iniziale è bespoke (premium) o template (self-serve). Productization fasata: bespoke → semi-prodotto → prodotto maturo.
+
+**Target**: sottoinsieme CT che vuole presenza web gestita (più universale di ET — quasi ogni brand ha un sito).
+
+**Status**: da costruire dopo che CT ha clienti paganti (pull dal mercato).
+
+### 1.5 Suite umbrella + tassonomia delivery
 
 ```
                     ┌─────────────────────────────────┐
@@ -81,21 +98,31 @@ Voler.ai diventa una **suite di prodotti business** sotto un brand ombrello. Tre
                     │  The Tuner Suite for Business   │
                     └─────────────────────────────────┘
                                   │
-        ┌─────────────────────────┼─────────────────────────┐
-        ▼                         ▼                         ▼
-  ┌──────────────┐          ┌──────────────┐          ┌──────────────┐
-  │   BUSINESS   │          │   CONTENT    │          │  EXPERIENCE  │
-  │    TUNER     │          │    TUNER     │          │    TUNER     │
-  ├──────────────┤          ├──────────────┤          ├──────────────┤
-  │   STRATEGY   │          │ STORYTELLING │          │     VISIT    │
-  │  Capisci il  │          │  Racconta il │          │  Fai vivere  │
-  │   mercato    │          │  tuo brand   │          │ il tuo luogo │
-  └──────────────┘          └──────────────┘          └──────────────┘
-
-  Insights ─────────────── Content production ────────── Visit delivery
+   ┌──────────────┬──────────────┼──────────────┬──────────────┐
+   ▼              ▼              ▼              ▼              ▼
+ INTELLIGENCE  PRODUCTION    ──────── DELIVERY ────────
+ ┌──────────┐ ┌──────────┐  ┌──────────┐  ┌──────────┐
+ │ BUSINESS │ │ CONTENT  │  │EXPERIENCE│  │   WEB    │
+ │  TUNER   │ │  TUNER   │  │  TUNER   │  │  TUNER   │
+ ├──────────┤ ├──────────┤  ├──────────┤  ├──────────┤
+ │ Capisci  │ │ Racconta │  │Fai vivere│  │Fai vivere│
+ │(strategy │ │(content+ │  │ il luogo │  │ online   │
+ │+convers.)│ │ distrib.)│  │(audio app│  │ (sito)   │
+ └──────────┘ └──────────┘  └──────────┘  └──────────┘
 ```
 
-**Narrativa di vendita unificata**: "Capire, raccontare, far vivere".
+**Tassonomia delivery** (distinzione fondamentale):
+
+| Tipo | Cosa | Esempi | Dove vive |
+|---|---|---|---|
+| **Superfici OWNED** (Voler costruisce + ospita) | Richiedono engineering | Experience Tuner (audioguida), Web Tuner (sito) | Prodotti -Tuner dedicati |
+| **Canali DISTRIBUTION** (pubblichi su piattaforme esistenti) | Solo integrazione API | Social (IG/FB/LinkedIn/X), email (Mailchimp), CMS (WordPress), print (PDF) | **Capability di Content Tuner** |
+
+> **I social NON sono un prodotto -Tuner.** Sono una capability di distribuzione di CT (pubblicazione via API). Solo le superfici che COSTRUIAMO (audioguida, sito) sono prodotti delivery dedicati.
+
+> **ET vs WT productizzabilità**: ET è pienamente prodottizzabile (struttura uniforme tra clienti — stesso player, contenuti diversi). WT è "managed product" (siti strutturalmente diversi tra clienti — setup bespoke + management ricorrente prodottizzato).
+
+**Narrativa di vendita unificata**: "Capire, raccontare, far vivere (on-site e online)".
 
 ---
 
@@ -124,52 +151,32 @@ Voler.ai diventa una **suite di prodotti business** sotto un brand ombrello. Tre
 
 ## 3. Pricing model
 
-### 3.1 Tier Business Tuner (esistente, da consolidare)
+> **Documento di dettaglio:** [`2026-05-20-pricing-packaging.md`](./2026-05-20-pricing-packaging.md) è la fonte di verità su pricing, packaging, crediti e setup. Questa sezione ne riassume solo i principi. **In caso di conflitto vince il pricing doc.**
 
-| Tier | €/mese | Cosa include |
+### 3.1 Tre principi che cambiano l'impostazione precedente
+
+Il modello a tier separati per prodotto (BT €49-299 / CT €499-5000 / ET addon) è **superato**. Tre decisioni lo sostituiscono:
+
+1. **Tech-enabled service, non pure SaaS.** I clienti non si auto-onboardano. La creazione della KB (sia per BT che per CT) richiede lavoro editoriale qualificato che non è prodottizzabile in self-service. Quindi vendiamo: **setup gestito + abbonamento ricorrente + retainer opzionale**.
+
+2. **Crediti unificati su tutta la suite.** Un solo wallet a livello di Organization. I crediti si spendono su qualsiasi prodotto (BT, CT, ET, WT). Il costo in crediti di ogni azione è mappato sul costo reale in $ del modello AI sottostante (`LlmUsage` × markup ~3x, 1 credito = €0,01). Questo elimina la sproporzione "CT costa 10x BT": un'azione CT costa più crediti perché costa più $ reali, non per markup arbitrario.
+
+3. **Il tier sblocca feature, i crediti misurano il consumo.** L'abbonamento determina *cosa puoi fare* (feature gating); i crediti determinano *quanto puoi farne*. Sono due assi indipendenti.
+
+### 3.2 Le tre layer di ricavo (sintesi)
+
+| Layer | Cos'è | Quando |
 |---|---|---|
-| Starter | 49 | 6k crediti, monitoring base |
-| **Pro** ⭐ | 149 | 20k crediti, monitoring + interviews + insights |
-| Business | 299 | 40k crediti, tutto pro + agenti AI |
+| **Activation bundle** | Setup gestito una tantum (KB, brand voice, configurazione, primi contenuti). Pacchetti S/M/L per prodotto. | All'onboarding |
+| **Credits subscription** | Abbonamento mensile = tier (feature) + crediti inclusi. Starter €49/6k → Enterprise €4000+/unlimited. | Ricorrente |
+| **Managed retainer** (opzionale) | Voler gestisce la produzione continua per conto del cliente. €1-5k/mese. | Secondario, on demand |
 
-### 3.2 Tier Content Tuner (nuovo)
+### 3.3 Delivery model: hybrid
 
-| Tier | €/mese | Cosa include |
-|---|---|---|
-| Starter | 499 | Studio + KB + 1 brand voice + 3 canali content + 30 artifacts/mese + workflow base |
-| **Pro** ⭐ | 1.200-1.500 | + preservation-first media + 3 brand voices + 9-12 canali + 150 artifacts + calendario editoriale + workflow completo |
-| Enterprise | 3.000-5.000 | + brand voices unlimited + tutti i 15+ canali + unlimited artifacts + API access + bridge BT + dedicated AM |
+- **Voler flagship**: clienti gestiti direttamente da Voler.ai (case study, prestigio, marginalità alta via retainer).
+- **Partner/volume**: agenzie e partner che usano la suite per i propri clienti (volume, crediti, self-managed dopo setup).
 
-### 3.3 Tier Experience Tuner (addon di CT, richiede CT come base)
-
-| Tier | €/mese per sito | Cosa include |
-|---|---|---|
-| Basic | +300 | PWA visitor web + branding base + audio TTS |
-| **Pro** ⭐ | +700 | + custom domain + visitor analytics dashboard + family mode UX |
-| Enterprise | +1.500 | + app nativa Expo iOS/Android + push notifications + offline-first |
-
-### 3.4 Bundle examples
-
-| Cliente tipo | Configurazione | €/mese totale |
-|---|---|---|
-| **Museo medio** | CT Pro + ET Pro | 1.900-2.200 |
-| **Cantina DOC** | BT Pro + CT Pro + ET Basic | 1.949-2.249 |
-| **Brand luxury fashion** | BT Business + CT Enterprise | 3.299-5.299 |
-| **Agenzia 5 clienti** | BT Pro + CT Enterprise | 3.149-5.149 |
-| **Comune turistico 5 siti** | CT Enterprise + ET Pro × 5 | 6.500 |
-| **Real estate prestigio 3 ville** | CT Pro + ET Pro × 3 | 3.600 |
-| **Solo content (B2B prodotto)** | BT Pro + CT Pro | 1.349-1.649 |
-
-### 3.5 Strategia di acquisizione clienti
-
-**Pilot program** (primi 6 mesi post-launch CT):
-- 3-5 clienti pilota Cultural Brand tier (CT Pro + ET Pro) a **€500/mese × 12 mesi** (sotto-costo)
-- In cambio: case study pubblicabile, video testimonial, citazione "powered by Voler.ai" nei loro materiali
-- Goal: avere 3-5 case study reali con nomi che fanno effetto per il go-to-market post-pilot
-
-**Cross-sell bundle**: -20% sul totale se compri 2 prodotti, -30% se compri tutti e 3.
-
-**Annual discount**: -29% su billing annuale (allineato a BT esistente).
+Vedi pricing doc per: tabella costo-crediti per azione, tier completi, activation packages dettagliati per BT/CT/ET/WT, feature gating matrix, esempi cliente con LTV, e le open question ancora aperte.
 
 ---
 
@@ -401,7 +408,7 @@ Lista esplicita per evitare ambiguità:
 
 1. **Brand identity ET visivo**: palette + logo + nome finale (`experiencetuner.voler.ai` o `toolia.app`?)
 2. **Brand identity CT visivo**: logo + sfumature azzurro/verde precise
-3. **Pricing finale**: i range €499-5.000 (CT) e €300-1.500 (ET) sono indicativi; serve research di mercato + 3 pilot per pricing precise
+3. **Pricing finale**: il modello (crediti unificati + activation bundle + retainer) è deciso in [`2026-05-20-pricing-packaging.md`]; i valori numerici precisi (costo crediti per azione, prezzo activation packages) restano da validare con research di mercato + 3 pilot. Vedi le open question nel pricing doc.
 4. **Module bundling**: bundle discount fissi o configurabili da commerciale?
 5. **Visitor App nativa (Expo)**: tiene tempo di Fase 3 o slip a Fase 4? Confermare in Fase 2.9
 6. **Sales motion**: self-serve per CT Starter? Sales-led per CT Pro+? Da decidere prima del primo cliente
