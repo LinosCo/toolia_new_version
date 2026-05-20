@@ -215,12 +215,21 @@ Riusa la struttura `PlanFeatures` di BT (boolean / `base`|`full`). **Quanti cana
 | ET audioguide | ❌ | ✅ base | ❌ | ✅ base | ✅ Pro | ✅ | ✅ + nativa Expo |
 | WT website | ❌ | ❌ | ❌ | ❌ | ✅ template | ✅ | ✅ bespoke |
 | **Bridge BT↔CT** | **sempre attivo con 2+ moduli — NON gated** |
-| White-label | ❌ | con 10+ clienti | ❌ | ❌ | ✅ | ✅ | ✅ |
-| Multi-client dashboard | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Integrazioni analytics (GA4 / Search Console) | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| Integrazioni CMS/commerce/email (WordPress / WooCommerce / Brevo) | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| White-label¹ | ❌ | con 10+ clienti | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Progetti | 1 | ∞ | ∞ | ∞ | ∞ | ∞ | ∞ |
 | SLA | — | — | — | — | — | — | 99,5% |
 
-> **API access per i clienti: NON esiste ancora.** Il flag `apiAccess` nel config BT (`plans.ts`) è un flag morto — dichiarato ma mai cablato come gate. Le route `/api/v1/*` di BT sono integrazioni **interne** service-to-service (chiave condivisa `BT_INTERNAL_API_KEY`), non un'API per-cliente. Un'API pubblica gated per tier è **roadmap futura**, non una feature attuale: non venderla finché non è costruita.
+**Stato reale delle feature (verificato nel codice BT — vendi solo ciò che è cablato):**
+
+> ¹ **White-label: NON ancora sviluppato.** Lasciato in matrice come feature pianificata — tecnicamente è relativamente semplice. Si implementa quando/se richiesto. Non spingerla finché non esiste.
+
+> **"Multi-client dashboard" NON è una feature separata.** È già il modello base Org/Project: un'Organization (team) con più Progetti, ciascuno con utenti diversi. Disponibile a tutti i tier a pagamento — non un add-on da gestire o gated. (Per questo è stato rimosso dalla matrice.)
+
+> **Integrazioni reali e cablate**: WordPress, WooCommerce, Brevo (pubblicazione/CMS/email), GA4 + Search Console (lettura analytics). Social publish (Meta/IG/LinkedIn) rientra in "CT content". Il gating per tier sopra ricalca quello attuale di BT (`cmsIntegrations` Business+, analytics Pro+) e può essere rivisto.
+
+> **API access per i clienti: NON esiste ancora.** Il flag `apiAccess` nel config BT (`plans.ts`) è un flag morto — dichiarato ma mai cablato come gate. Le route `/api/v1/*` di BT sono integrazioni **interne** service-to-service (chiave condivisa `BT_INTERNAL_API_KEY`), non un'API per-cliente. Un'API pubblica gated per tier è **roadmap futura**: non venderla finché non è costruita.
 
 ---
 
@@ -231,7 +240,7 @@ Due motori in parallelo dall'inizio. Tre personaggi, mappati su Organization/Pro
 | Personaggio | Come compra | Note |
 |---|---|---|
 | **Agenzia/freelance strutturato** | account proprio su **Pro** (→ Business/Scale crescendo), **1 progetto per cliente** | motore principale di volume; fa lui il setup → costo di delivery basso per Voler; scaling **usage-based puro** (no cap progetti); passa a **Business** quando vuole **white-label** |
-| **Freelance poco strutturato** | si iscrive **Partner**, fa aprire un account Pro/Business a ogni cliente | più raro; Partner = €29 (€0 con 3+ clienti), dashboard multi-cliente, commissione |
+| **Freelance poco strutturato** | si iscrive **Partner**, fa aprire un account Pro/Business a ogni cliente | più raro; Partner = €29 (€0 con 3+ clienti), vista multi-progetto (modello base), commissione |
 | **Azienda con marketing team** | account proprio Pro/Business, **via intermediazione Voler o partner** | diretto flagship; case study |
 
 **Delivery hybrid**: Voler.ai gestisce flagship/enterprise/bespoke + primi pilot; partner certificati coprono SMB e volume (estende il partner program BT). Voler incassa sempre activation + crediti ricorrenti, indipendentemente da chi fa il setup.

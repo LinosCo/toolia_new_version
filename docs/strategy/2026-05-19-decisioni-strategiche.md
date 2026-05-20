@@ -116,7 +116,7 @@ Voler.ai diventa una **suite di prodotti business** sotto un brand ombrello. Tre
 | Tipo | Cosa | Esempi | Dove vive |
 |---|---|---|---|
 | **Superfici OWNED** (Voler costruisce + ospita) | Richiedono engineering | Experience Tuner (audioguida), Web Tuner (sito) | Prodotti -Tuner dedicati |
-| **Canali DISTRIBUTION** (pubblichi su piattaforme esistenti) | Solo integrazione API | Social (IG/FB/LinkedIn/X), email (Mailchimp), CMS (WordPress), print (PDF) | **Capability di Content Tuner** |
+| **Canali DISTRIBUTION** (pubblichi su piattaforme esistenti) | Solo integrazione API | Social (IG/FB/LinkedIn/X), email (Brevo), CMS/commerce (WordPress/WooCommerce), print (PDF) | **Capability di Content Tuner** |
 
 > **I social NON sono un prodotto -Tuner.** Sono una capability di distribuzione di CT (pubblicazione via API). Solo le superfici che COSTRUIAMO (audioguida, sito) sono prodotti delivery dedicati.
 
@@ -229,7 +229,7 @@ studio-tuner/
 │   ├── @voler/media-pipeline     # Preservation-first media (4 modalità + identity check)
 │   ├── @voler/brand-voice        # BrandSkill distillation + manifest management
 │   ├── @voler/spatial            # Segment graph + compose-visit (cuore di ET)
-│   ├── @voler/connectors         # Connessioni social/CMS riusate da BT (Meta, LinkedIn, WordPress, n8n) + OAuth
+│   ├── @voler/connectors         # Connessioni riusate da BT: Meta, LinkedIn, WordPress/WooCommerce, Brevo, GA4/GSC, n8n + OAuth
 │   └── @voler/bridge             # Event bus inter-app + webhooks
 └── services/
     ├── worker-jobs/              # Background jobs (pg-boss) per generazioni async
@@ -289,7 +289,8 @@ Analisi di accoppiamento (codice `ai-interviewer`):
 | Token storage (cifrati) | modello `AutomationChannelConnection` (keyed su org/project/provider/channel) | 🟢 Alta | Vive a livello Organization → multi-prodotto by design |
 | Meta publish (FB feed/photo, IG post/story/carousel) | `lib/automation/adapters/meta-publish.ts` | 🟢 Alta | Firma generica testo+media, zero deps dominio interview |
 | LinkedIn publish (org page) | `lib/automation/adapters/linkedin-publish.ts` | 🟢 Alta | Adapter isolato `{organizationUrn, accessToken, text, mediaUrl}` |
-| Connettori CMS/email (WordPress, WooCommerce, Brevo) | `lib/integrations/mcp/base.adapter.ts` (classe base astratta) | 🟢 Alta | Pattern adapter già pronto |
+| Connettori CMS/commerce/email (WordPress, WooCommerce, Brevo) | `lib/integrations/mcp/base.adapter.ts` (classe base astratta) | 🟢 Alta | Pattern adapter già pronto |
+| Integrazioni analytics read (GA4, Search Console) | BT featureList Pro: "Integra G.Analytics e Search Console" | 🟢 Alta | lettura metriche — riusabile per il measure-loop di WT/CT |
 | Automation engine + dispatcher n8n | `lib/automation/service.ts`, `lib/integrations/n8n/dispatcher.ts` | 🟡 Media | Orchestratore riusabile, ma il `runner.ts` è cablato sul concetto BT **"tip"** |
 | Signals / reasoning (sentiment, brand monitoring, generazione tip) | `lib/signals/reasoning/*` | 🔴 Resta in BT | È il cuore-dominio di BT, CT non ne ha bisogno |
 
