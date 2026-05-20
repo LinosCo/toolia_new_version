@@ -46,7 +46,13 @@ export async function distillBrandSkill(args: { projectId: string; tenantId: str
   });
 
   const raw = completion.choices[0]?.message?.content ?? "{}";
-  const parsed = brandSkillManifestSchema.safeParse(JSON.parse(raw));
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: "invalid_manifest" };
+  }
+  const parsed = brandSkillManifestSchema.safeParse(json);
   if (!parsed.success) return { ok: false, error: "invalid_manifest" };
 
   const created = await prisma.$transaction(async (tx) => {
