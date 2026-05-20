@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+import { type Prisma } from "@/generated/prisma/client";
 import { getSessionUser, handleAuthError } from "@/lib/rbac";
 
 export async function GET(
@@ -42,7 +43,7 @@ export async function GET(
     // la preview Studio mostra tutto come sarà dopo la pubblicazione.
     // Tutti gli altri (visitatore pubblico) vedono solo schede published.
     const isOwnerView = !!user && project.tenantId === user.tenantId;
-    const schedaWhere = isOwnerView
+    const schedaWhere: Prisma.SchedaWhereInput = isOwnerView
       ? { projectId: id }
       : { projectId: id, status: "published" };
 
