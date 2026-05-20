@@ -11,6 +11,7 @@ import {
   Plus,
 } from "lucide-react";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useSidebar } from "@/components/sidebar-provider";
 import { ProjectCard } from "@/components/project-card";
 import { ProjectRow } from "@/components/project-row";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,7 @@ function matchesFilter(p: MockProject, f: Filter) {
 }
 
 export default function DashboardPage() {
+  const { collapsed } = useSidebar();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [view, setView] = useState<ViewMode>("grid");
@@ -212,8 +214,13 @@ export default function DashboardPage() {
     <div className="flex min-h-screen w-full bg-paper">
       <AppSidebar />
 
-      <main className="flex-1 md:pl-64">
-        <div className="mx-auto max-w-[1280px] px-6 md:px-10 py-10 md:py-14">
+      <main
+        className={cn(
+          "flex-1 bg-mesh transition-[padding-left] duration-200 ease-in-out",
+          collapsed ? "md:pl-16" : "md:pl-64",
+        )}
+      >
+        <div className="mx-auto max-w-[1200px] px-4 md:px-8 py-6 md:py-10">
           {/* Hero */}
           <header className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6 mb-12">
             <div className="max-w-2xl">

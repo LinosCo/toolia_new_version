@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useSidebar } from "@/components/sidebar-provider";
 import { InviteMemberDialog } from "@/components/invite-member-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,12 +72,19 @@ const externalLinks = [
 ];
 
 export default function ImpostazioniPage() {
+  const { collapsed } = useSidebar();
+
   return (
     <div className="flex min-h-screen w-full bg-paper">
       <AppSidebar />
 
-      <main className="flex-1 md:pl-64">
-        <div className="mx-auto max-w-[1280px] px-6 md:px-10 py-10 md:py-14">
+      <main
+        className={cn(
+          "flex-1 bg-mesh transition-[padding-left] duration-200 ease-in-out",
+          collapsed ? "md:pl-16" : "md:pl-64",
+        )}
+      >
+        <div className="mx-auto max-w-[1200px] px-4 md:px-8 py-6 md:py-10">
           {/* Hero */}
           <header className="mb-12 max-w-2xl">
             <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground mb-3">

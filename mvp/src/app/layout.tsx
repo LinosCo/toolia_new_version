@@ -3,6 +3,7 @@ import { Inter, Plus_Jakarta_Sans, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthSessionProvider } from "@/components/session-provider";
 import { SWRProvider } from "@/components/swr-provider";
+import { SidebarProvider } from "@/components/sidebar-provider";
 import "./globals.css";
 
 const inter = Inter({
@@ -48,7 +49,9 @@ export default function RootLayout({
               enableSystem
               disableTransitionOnChange
             >
-              {children}
+              <SidebarProvider>
+                {children}
+              </SidebarProvider>
             </ThemeProvider>
           </SWRProvider>
         </AuthSessionProvider>

@@ -3,7 +3,9 @@
 import { use, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useSidebar } from "@/components/sidebar-provider";
 import { ProjectStepper } from "@/components/project-stepper";
 import {
   sourcesCompletion,
@@ -30,6 +32,7 @@ export default function ProjectLayout({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
+  const { collapsed } = useSidebar();
 
   const { data: metaData, isLoading: metaLoading, error: metaError } =
     useProjectMeta(id);
@@ -133,9 +136,19 @@ export default function ProjectLayout({
     <div className="flex min-h-screen w-full bg-paper">
       <AppSidebar />
 
-      <div className="flex-1 md:pl-64 flex">
+      <div
+        className={cn(
+          "flex-1 flex transition-[padding-left] duration-200 ease-in-out",
+          collapsed ? "md:pl-16" : "md:pl-64",
+        )}
+      >
         {/* Project stepper */}
-        <aside className="hidden lg:flex fixed md:left-64 top-0 bottom-0 w-72 border-r border-border/70 bg-sidebar/40 flex-col overflow-y-auto">
+        <aside
+          className={cn(
+            "hidden lg:flex fixed top-0 bottom-0 w-72 border-r border-border/70 bg-sidebar/40 flex-col overflow-y-auto transition-[left] duration-200 ease-in-out",
+            collapsed ? "left-16" : "left-64",
+          )}
+        >
           <div className="px-6 pt-7 pb-6">
             <Link
               href="/"
@@ -161,7 +174,7 @@ export default function ProjectLayout({
           </div>
         </aside>
 
-        <main className="flex-1 lg:pl-72 min-w-0">{children}</main>
+        <main className="flex-1 lg:pl-72 min-w-0 bg-mesh">{children}</main>
       </div>
     </div>
   );
