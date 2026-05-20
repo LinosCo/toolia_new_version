@@ -135,6 +135,7 @@ model Project {
   contentEmbeddings ContentEmbedding[]
   brandAssets BrandAsset[]
   brandSkills BrandSkill[]
+  contentDrafts ContentDraft[]
 
   @@index([tenantId])
 }
@@ -884,4 +885,40 @@ model BrandSkill {
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   @@index([projectId, status])
   @@map("brand_skills")
+}
+
+// ============================================================
+// CONTENT DRAFT (Fase 2.3) — bozze di contenuto generate dall'AI
+// ============================================================
+
+enum ContentDraftStatus {
+  draft
+  in_review
+  client_review
+  published
+  archived
+}
+
+model ContentDraft {
+  id               String             @id @default(cuid())
+  projectId        String             @map("project_id")
+  tenantId         String             @map("tenant_id")
+  format           String
+  channel          String?
+  lensId           String?            @map("lens_id")
+  narratorId       String?            @map("narrator_id")
+  language         String             @default("it")
+  title            String
+  body             String             @db.Text
+  status           ContentDraftStatus @default(draft)
+  planJson         Json               @default("{}") @map("plan_json")
+  verificationJson Json               @default("{}") @map("verification_json")
+  citationsJson    Json               @default("[]") @map("citations_json")
+  model            String?
+  version          Int                @default(1)
+  createdAt        DateTime           @default(now()) @map("created_at")
+  updatedAt        DateTime           @updatedAt @map("updated_at")
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@index([projectId, status])
+  @@map("content_drafts")
 }
