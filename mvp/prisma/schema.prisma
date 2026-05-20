@@ -133,6 +133,8 @@ model Project {
   llmUsages    LlmUsage[]
   narrativeTension NarrativeTension?
   contentEmbeddings ContentEmbedding[]
+  brandAssets BrandAsset[]
+  brandSkills BrandSkill[]
 
   @@index([tenantId])
 }
@@ -794,4 +796,92 @@ model ContentEmbedding {
   @@index([tenantId, projectId])
   @@index([sourceType, sourceId])
   @@map("content_embeddings")
+}
+
+// ============================================================
+// BRAND LAYER (Fase 2.2) — Asset, Evidence, Skill
+// ============================================================
+
+enum BrandAssetKind {
+  UPLOAD_IMAGE
+  UPLOAD_TEXT
+  URL_PAGE
+}
+
+enum BrandAssetCategory {
+  LOGO
+  COLOR_PALETTE
+  TYPOGRAPHY
+  BRAND_BOOK
+  PAST_CONTENT
+  MOODBOARD
+  PRODUCT_PHOTO
+  OTHER
+}
+
+enum BrandAssetStatus {
+  PENDING
+  EXTRACTING
+  READY
+  FAILED
+  ARCHIVED
+}
+
+enum BrandSkillStatus {
+  CURRENT
+  SUPERSEDED
+  DRAFT
+}
+
+model BrandAsset {
+  id            String             @id @default(cuid())
+  projectId     String             @map("project_id")
+  tenantId      String             @map("tenant_id")
+  label         String?
+  kind          BrandAssetKind
+  category      BrandAssetCategory @default(OTHER)
+  status        BrandAssetStatus   @default(PENDING)
+  content       String?
+  mimeType      String?            @map("mime_type")
+  sourceUrl     String?            @map("source_url")
+  extractorError String?           @map("extractor_error")
+  extractedAt   DateTime?          @map("extracted_at")
+  createdAt     DateTime           @default(now()) @map("created_at")
+  updatedAt     DateTime           @updatedAt @map("updated_at")
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  evidence BrandEvidence[]
+  @@index([projectId])
+  @@map("brand_assets")
+}
+
+model BrandEvidence {
+  id          String   @id @default(cuid())
+  projectId   String   @map("project_id")
+  assetId     String   @map("asset_id")
+  field       String
+  value       Json
+  description String?
+  confidence  Float?
+  sourceModel String?  @map("source_model")
+  createdAt   DateTime @default(now()) @map("created_at")
+  asset BrandAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  @@index([projectId])
+  @@index([assetId])
+  @@map("brand_evidence")
+}
+
+model BrandSkill {
+  id                  String           @id @default(cuid())
+  projectId           String           @map("project_id")
+  version             Int
+  status              BrandSkillStatus @default(CURRENT)
+  manifest            Json
+  builtFromEvidenceIds Json            @map("built_from_evidence_ids")
+  distillerModel      String?          @map("distiller_model")
+  distillerTokensIn   Int?             @map("distiller_tokens_in")
+  distillerTokensOut  Int?             @map("distiller_tokens_out")
+  distilledAt         DateTime         @default(now()) @map("distilled_at")
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@index([projectId, status])
+  @@map("brand_skills")
 }
