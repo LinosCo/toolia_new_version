@@ -1086,6 +1086,14 @@ git push origin HEAD:main
 
 **Il Postgres di produzione (Railway) DEVE avere l'estensione `pgvector` disponibile a livello server prima di applicare la migrazione `content_embedding`.** La migrazione fa `CREATE EXTENSION IF NOT EXISTS vector` — se i binari pgvector non sono installati sul server, la migrazione fallisce. In locale è stato risolto con `brew install pgvector` (Postgres Homebrew). Su Railway: usare un Postgres con pgvector abilitato (i template Postgres recenti di Railway lo supportano). Documentare nel runbook di deploy. Stesso vincolo per qualsiasi ambiente di staging.
 
+## ⚠️ Gotcha ricorrente: Prisma droppa l'indice HNSW a ogni `migrate dev`
+
+`prisma migrate dev` NON "vede" l'indice `content_embeddings_embedding_idx` (la colonna `embedding` è `Unsupported("vector(1536)")`) → ad **ogni nuova migrazione** Prisma genera uno spurio `DROP INDEX "content_embeddings_embedding_idx";`. Se applicato, l'indice vettoriale sparisce (la retrieval continua a funzionare via seq-scan, ma lenta a scala). È già successo con la migrazione `brand_layer` di F2.2.
+
+**Regola per ogni futura `migrate dev`** che tocca lo schema:
+1. Aprire la `migration.sql` generata e **rimuovere** la riga `DROP INDEX "content_embeddings_embedding_idx";` (NON quella di altri indici legittimi).
+2. Se è già stata applicata, aggiungere una migrazione di ripristino come `20260520150000_restore_content_embeddings_hnsw/migration.sql` con `CREATE INDEX IF NOT EXISTS ... USING hnsw (embedding vector_cosine_ops)` e `prisma migrate deploy`.
+
 ## Note per l'esecutore
 
 - **`.env.test`** deve puntare a un DB Postgres di test il cui ruolo possa eseguire `CREATE EXTENSION vector` (la prima esecuzione del Task 1 lo crea). Se la migrazione di test non è applicata, eseguire `cd mvp && npx dotenv -e .env.test -- npx prisma migrate deploy` prima dei test.
