@@ -227,6 +227,7 @@ studio-tuner/
 │   ├── @voler/media-pipeline     # Preservation-first media (4 modalità + identity check)
 │   ├── @voler/brand-voice        # BrandSkill distillation + manifest management
 │   ├── @voler/spatial            # Segment graph + compose-visit (cuore di ET)
+│   ├── @voler/connectors         # Connessioni social/CMS riusate da BT (Meta, LinkedIn, WordPress, n8n) + OAuth
 │   └── @voler/bridge             # Event bus inter-app + webhooks
 └── services/
     ├── worker-jobs/              # Background jobs (pg-boss) per generazioni async
@@ -273,6 +274,43 @@ Strategia:
 4. Comunicare downtime ~2 ore concordato con early adopter
 5. Migration prod con backup pre-flight + rollback plan
 6. DNS swap `businesstuner.voler.ai` punta alla nuova app nel monorepo
+
+### 4.8 Connettori social/CMS — riuso da BT, NON riscrivere (`@voler/connectors`)
+
+**Decisione**: le connessioni social di Business Tuner sono già in gran parte dominio-agnostiche (~70% riusabile). Diventano il pacchetto condiviso `@voler/connectors`, usato da BT, CT ed ET. **Non si riscrivono le app di connessione.**
+
+Analisi di accoppiamento (codice `ai-interviewer`):
+
+| Pezzo | Dove vive in BT | Riuso | Note |
+|---|---|---|---|
+| OAuth start + callback | `app/api/automation/oauth/*` (provider-driven via env) | 🟢 Alta | Già pilotato da `provider`/`channel`, non da BT |
+| Token storage (cifrati) | modello `AutomationChannelConnection` (keyed su org/project/provider/channel) | 🟢 Alta | Vive a livello Organization → multi-prodotto by design |
+| Meta publish (FB feed/photo, IG post/story/carousel) | `lib/automation/adapters/meta-publish.ts` | 🟢 Alta | Firma generica testo+media, zero deps dominio interview |
+| LinkedIn publish (org page) | `lib/automation/adapters/linkedin-publish.ts` | 🟢 Alta | Adapter isolato `{organizationUrn, accessToken, text, mediaUrl}` |
+| Connettori CMS/email (WordPress, WooCommerce, Brevo) | `lib/integrations/mcp/base.adapter.ts` (classe base astratta) | 🟢 Alta | Pattern adapter già pronto |
+| Automation engine + dispatcher n8n | `lib/automation/service.ts`, `lib/integrations/n8n/dispatcher.ts` | 🟡 Media | Orchestratore riusabile, ma il `runner.ts` è cablato sul concetto BT **"tip"** |
+| Signals / reasoning (sentiment, brand monitoring, generazione tip) | `lib/signals/reasoning/*` | 🔴 Resta in BT | È il cuore-dominio di BT, CT non ne ha bisogno |
+
+**Unico refactor necessario** prima della condivisione (~2-4 giorni, una tantum): sostituire l'oggetto BT-specifico `TipData` con un `PublishRequest` generico (`{ text, imageUrls[], hashtags[], channelConfig }`) in `runner.ts` e `contracts.ts`, rimuovendo `tipId`/`AutomationTipContextV1`. Così anche CT può "alimentare" il motore di pubblicazione. **Non si toccano gli adapter.**
+
+### 4.9 Strategia OAuth e domini
+
+**App registrate (Meta/LinkedIn)**: una sola registrazione per provider, riusata da tutti i prodotti. Aggiungere un prodotto = aggiungere un redirect URI (pura config, **nessuna nuova App Review** finché gli scope non cambiano: `pages_manage_posts`, `instagram_content_publish`, `w_member_social`).
+
+**Decisione OAuth in 2 stadi**:
+- **Ora (pre-monorepo)**: ogni prodotto usa il proprio sottodominio come redirect URI sulla stessa app.
+- **In monorepo (target)**: **OAuth centralizzato** su `accounts.voler.ai`. Un solo redirect URI registrato per sempre; le connessioni salvate in `AutomationChannelConnection` (già a livello Organization) sono lette da tutti i prodotti. Aggiungere CT/ET/WT non tocca più la console Meta/LinkedIn.
+
+**Convenzione hostnames** (parole intere concatenate, coerente con `businesstuner`):
+
+| Prodotto | Hostname canonico | Redirect/typo-catch |
+|---|---|---|
+| Business Tuner | `businesstuner.voler.ai` | — |
+| Content Tuner | `contenttuner.voler.ai` (2 "t": *content* + *tuner*) | `contentuner.voler.ai` → 301 al canonico |
+| Experience Tuner | `experiencetuner.voler.ai` (TBD vs `toolia.app`) | — |
+| OAuth centralizzato | `accounts.voler.ai` | — |
+
+Essendo **sottodomini** di `voler.ai` (non domini da acquistare), il typo-catch `contentuner` → `contenttuner` è gratuito (solo DNS + redirect).
 
 ---
 
