@@ -1082,6 +1082,10 @@ git push origin HEAD:main
 
 ---
 
+## ⚠️ Prerequisito di DEPLOY (produzione)
+
+**Il Postgres di produzione (Railway) DEVE avere l'estensione `pgvector` disponibile a livello server prima di applicare la migrazione `content_embedding`.** La migrazione fa `CREATE EXTENSION IF NOT EXISTS vector` — se i binari pgvector non sono installati sul server, la migrazione fallisce. In locale è stato risolto con `brew install pgvector` (Postgres Homebrew). Su Railway: usare un Postgres con pgvector abilitato (i template Postgres recenti di Railway lo supportano). Documentare nel runbook di deploy. Stesso vincolo per qualsiasi ambiente di staging.
+
 ## Note per l'esecutore
 
 - **`.env.test`** deve puntare a un DB Postgres di test il cui ruolo possa eseguire `CREATE EXTENSION vector` (la prima esecuzione del Task 1 lo crea). Se la migrazione di test non è applicata, eseguire `cd mvp && npx dotenv -e .env.test -- npx prisma migrate deploy` prima dei test.

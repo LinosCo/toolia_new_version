@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { prisma } from "@/lib/db";
-import { getSessionUser, handleAuthError } from "@/lib/rbac";
+import { getSessionUser, requireRole, handleAuthError } from "@/lib/rbac";
 import { retrieveContent } from "@/lib/content/retrieval";
 
 export const maxDuration = 60;
@@ -10,6 +10,7 @@ const Body = z.object({ query: z.string().min(1), topK: z.number().int().min(1).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const user = await getSessionUser();
+    requireRole(user, ["Admin", "Editor", "Reviewer"]);
     const { id } = await params;
 
     const project = await prisma.project.findFirst({ where: { id, tenantId: user.tenantId }, select: { id: true } });
