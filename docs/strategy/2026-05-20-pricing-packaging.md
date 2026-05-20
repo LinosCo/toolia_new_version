@@ -129,7 +129,7 @@ Prezzi **mensili** veri di BT (annuale-equiv tra parentesi, sconto ~29%).
 | **Partner** ⭐ | 10.000 | €29 (€0 con 3+ clienti) | **canale** freelance/agenzie |
 | Starter | 6.000 | €69 (€49) | entry diretto |
 | **Pro** ⭐ | 20.000 | €199 (€149) | flagship diretto + agenzia con progetti-cliente |
-| Business | 40.000 | €399 (€299) | strutturati + white-label + API |
+| Business | 40.000 | €399 (€299) | strutturati + white-label |
 | Scale *(nuovo)* | ~100.000 | ~€699 | content/audio-heavy |
 | Enterprise | fair-use unlimited | €999+ | luxury / enti grandi |
 
@@ -215,13 +215,12 @@ Riusa la struttura `PlanFeatures` di BT (boolean / `base`|`full`). **Quanti cana
 | ET audioguide | ❌ | ✅ base | ❌ | ✅ base | ✅ Pro | ✅ | ✅ + nativa Expo |
 | WT website | ❌ | ❌ | ❌ | ❌ | ✅ template | ✅ | ✅ bespoke |
 | **Bridge BT↔CT** | **sempre attivo con 2+ moduli — NON gated** |
-| API access | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | full |
 | White-label | ❌ | con 10+ clienti | ❌ | ❌ | ✅ | ✅ | ✅ |
 | Multi-client dashboard | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
 | Progetti | 1 | ∞ | ∞ | ∞ | ∞ | ∞ | ∞ |
 | SLA | — | — | — | — | — | — | 99,5% |
 
-**API access** = accesso programmatico alle funzioni della suite (es. far generare un contenuto dal gestionale del cliente, o estrarre dati). Gated su Business+ (come in BT). Per il target heritage serve a pochi (agenzie/enterprise).
+> **API access per i clienti: NON esiste ancora.** Il flag `apiAccess` nel config BT (`plans.ts`) è un flag morto — dichiarato ma mai cablato come gate. Le route `/api/v1/*` di BT sono integrazioni **interne** service-to-service (chiave condivisa `BT_INTERNAL_API_KEY`), non un'API per-cliente. Un'API pubblica gated per tier è **roadmap futura**, non una feature attuale: non venderla finché non è costruita.
 
 ---
 
