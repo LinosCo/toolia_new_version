@@ -322,12 +322,12 @@ Essendo **sottodomini** di `voler.ai` (non domini da acquistare), il typo-catch 
 
 | Modalità | Use case | Modello | Costo/img |
 |---|---|---|---|
-| A — Generation from scratch | Illustrazione concettuale astratta | gpt-image-1 → DALL-E 3 → Gemini | $0.04-0.08 |
-| **B — Preservation edit** ⭐ | Foto reale del cliente + treatment editoriale (preserva identità) | Flux Kontext → gpt-image-1 edit → Gemini edit | $0.05 |
-| **C — Style reference transfer** | Foto reale + style da reference library | Flux Kontext w/reference → SD+IP-Adapter | $0.05 |
+| A — Generation from scratch | Illustrazione concettuale astratta | nano-banana-pro → gpt-image-2 → flux-2-pro | $0.04-0.06 |
+| **B — Preservation edit** ⭐ | Foto reale del cliente + treatment editoriale (preserva identità) | flux-2-max → gpt-image-2-edit → nano-banana-pro-edit | $0.05-0.08 |
+| **C — Style reference transfer** | Foto reale + style da reference library | nano-banana-pro → flux-2-max | $0.04-0.06 |
 | D — Layout templates | Locandina, brochure, poster | HTML/CSS render via Puppeteer | ~$0 |
 
-**Identity preservation check** obbligatorio per modalità B e C: gpt-4o Vision compara source vs output, se `preserved=false` o `confidence<0.7` → output rejected + warning UI.
+**Identity preservation check** obbligatorio per modalità B e C: gemini-3-1-pro (fallback claude-opus-4-7) compara source vs output, se `preserved=false` o `confidence<0.7` → output rejected + warning UI.
 
 ### 5.2 BrandSkill distillation (CT)
 
