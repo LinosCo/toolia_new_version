@@ -5,11 +5,13 @@ import { RetrievalPlayground } from "./retrieval-playground";
 import { GeneratePanel } from "./generate-panel";
 import { DraftList } from "./draft-list";
 import { DraftCalendar } from "./draft-calendar";
+import { MediaPanel } from "./media-panel";
 
 const TABS = [
   { key: "studio", label: "Studio", desc: "Gestisci i contenuti e il loro stato" },
   { key: "genera", label: "Genera", desc: "Crea nuovi contenuti dalla KB" },
   { key: "calendario", label: "Calendario", desc: "Pianifica le pubblicazioni" },
+  { key: "media", label: "Media", desc: "Genera e modifica immagini" },
 ] as const;
 
 export function ContentTabs({ projectId }: { projectId: string }) {
@@ -32,6 +34,7 @@ export function ContentTabs({ projectId }: { projectId: string }) {
         </div>
       )}
       {tab === "calendario" && <DraftCalendar projectId={projectId} />}
+      {tab === "media" && <MediaPanel projectId={projectId} />}
     </div>
   );
 }
