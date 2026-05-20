@@ -91,6 +91,7 @@ model Tenant {
   clients       ClientEntity[]
   jobs          Job[]
   llmUsages     LlmUsage[]
+  contentDrafts ContentDraft[]
 }
 
 model Project {
@@ -136,6 +137,7 @@ model Project {
   brandAssets BrandAsset[]
   brandSkills BrandSkill[]
   contentDrafts ContentDraft[]
+  mediaAssets MediaAsset[]
 
   @@index([tenantId])
 }
@@ -920,7 +922,48 @@ model ContentDraft {
   createdAt        DateTime           @default(now()) @map("created_at")
   updatedAt        DateTime           @updatedAt @map("updated_at")
   project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   @@index([projectId, status])
   @@index([projectId, scheduledAt])
   @@map("content_drafts")
+}
+
+// ============================================================
+// MEDIA PIPELINE (Fase 2.5) — asset visivi generati/editati per progetto
+// ============================================================
+
+enum MediaMode {
+  GENERATION
+  PRESERVATION_EDIT
+  STYLE_TRANSFER
+  LAYOUT
+}
+
+enum MediaStatus {
+  pending
+  generating
+  ready
+  failed
+  rejected
+}
+
+model MediaAsset {
+  id             String      @id @default(cuid())
+  projectId      String      @map("project_id")
+  tenantId       String      @map("tenant_id")
+  mode           MediaMode
+  prompt         String?     @db.Text
+  sourceUrl      String?     @db.Text @map("source_url")
+  outputUrl      String?     @db.Text @map("output_url")
+  model          String?
+  status         MediaStatus @default(pending)
+  identityScore  Float?      @map("identity_score")
+  identityPassed Boolean?    @map("identity_passed")
+  identityNotes  String?     @map("identity_notes")
+  error          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  @@index([projectId, status])
+  @@map("media_assets")
 }
