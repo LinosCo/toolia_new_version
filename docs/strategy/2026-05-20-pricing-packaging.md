@@ -1,23 +1,41 @@
 # Voler.ai Tuner Suite — Pricing & Packaging
 
-> **Data**: 20 maggio 2026
-> **Status**: draft v1 — numeri da validare con pilot
+> **Data**: 20 maggio 2026 (rev. 2 — ribasata sui numeri reali di Business Tuner)
+> **Status**: draft v2 — struttura approvata in conversazione, numeri da validare con pilot
 > **Companion**: [2026-05-19-decisioni-strategiche.md](./2026-05-19-decisioni-strategiche.md), [2026-05-20-modelli-ai-reference.md](./2026-05-20-modelli-ai-reference.md)
-> **Scope**: modello di ricavo completo della suite — crediti unificati, activation packages, retainer, feature gating, delivery model
+> **Scope**: modello di ricavo della suite — crediti unificati, tier, activation, retainer, account model, go-to-market
 
 ---
 
-## 1. Filosofia di pricing: tech-enabled service
+## 0. Cosa è cambiato nella rev. 2 (perché)
 
-`Voler.ai NON è un puro self-serve SaaS.` È un **tech-enabled service**: il setup richiede competenza umana skilled (non è "clicca un bottone"), il valore ricorrente è prodottizzato via crediti.
+La v1 si era scollata dai numeri **reali e in produzione** di Business Tuner. Correzioni fatte verificando il codice BT (`src/config/plans.ts`, `creditPacks.ts`, `creditCosts.ts`):
 
-Tre verità che guidano il modello:
+| Tema | v1 (errato) | v2 (reale BT) |
+|---|---|---|
+| Valore credito | €0,01 | **€0,006** (floor `89/15000` = €0,00593) |
+| Margine target | 3x | **4x** (`TARGET_TOKEN_COST_MARGIN = 4`) |
+| Prezzi tier | €49/149/299 "mensili" | sono gli **annuali-equiv**; mensili veri **€69/199/399** |
+| Enterprise | €4.000+ | €999 (BT reale) |
+| Gating | cap di quantità (3 canali, 1 brand voice…) | **on/off + livello**, nessun cap (BT: "feature illimitate quando disponibili, consumano crediti") |
+| Bridge BT↔CT | feature gated (Business+) | **sempre attivo** con 2+ moduli |
+| Posizionamento | clienti enterprise (€16k setup + €3k/mese) | **entry-low**, sotto il costo di un freelance; alto di gamma come upside |
 
-1. **Il setup è skilled work.** Costruire una KB CT di qualità (lenti editoriali + tension map + brand voice) o configurare interview bot BT richiede expertise. Non è prodottizzabile come self-serve puro.
+---
 
-2. **L'usage è prodottizzabile.** Una volta fatto il setup, l'uso ricorrente (generare contenuti, audio, insight) è misurabile e fatturabile via crediti.
+## 1. Filosofia di pricing
 
-3. **Molti clienti target non hanno team interno.** Musei, ville, brand heritage spesso non hanno content team — vogliono che qualcuno faccia il lavoro (managed retainer opzionale).
+`Voler.ai NON è un puro self-serve SaaS, ma nemmeno una software house.` È un **tech-enabled service** con **atterraggio leggero**.
+
+Quattro verità che guidano il modello:
+
+1. **Il setup è skilled work** — costruire una KB CT di qualità (lenti + tension map + brand voice) o configurare gli interview bot BT richiede expertise. Ma per l'entry deve essere **leggero ed economico**, non un progetto da €16k.
+
+2. **L'usage è prodottizzabile** — una volta fatto il setup, l'uso ricorrente (contenuti, audio, insight) è misurabile e fatturabile via crediti.
+
+3. **Deve costare meno di un freelance/agenzia digital** (~€500–1.500/mese in Italia). Questa è l'àncora di prezzo dell'entry. Si "atterra leggeri" e si espande col consumo — non si parte pesanti.
+
+4. **Molti clienti target non hanno team interno** — vogliono che qualcuno faccia il lavoro (retainer done-for-you, opzionale).
 
 ---
 
@@ -25,27 +43,25 @@ Tre verità che guidano il modello:
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│ 1. ACTIVATION PACKAGE (una tantum)                       │
-│    Setup skilled + onboarding + primi mesi crediti       │
-│    bundled in un unico prezzo "activation"               │
-│    → riduce friction, blend service+product              │
+│ 1. ACTIVATION (una tantum, SALES-LED)                    │
+│    Setup skilled + onboarding + primi mesi crediti        │
+│    Leggera per l'entry, ricca solo per l'alto di gamma    │
 ├──────────────────────────────────────────────────────────┤
-│ 2. CREDITI SUBSCRIPTION (ricorrente)                     │
-│    Wallet unificato cross-suite (BT+CT+ET+WT)            │
-│    Tier che estendono i tier BT esistenti                │
-│    → prodotto, margine usage-based protetto              │
+│ 2. CREDITI SUBSCRIPTION (ricorrente, SELF-SERVE/Stripe)  │
+│    Wallet unificato cross-suite a livello Organization    │
+│    Tier reali BT estesi verso l'alto                      │
 ├──────────────────────────────────────────────────────────┤
-│ 3. MANAGED RETAINER (ricorrente, OPZIONALE/secondario)  │
-│    Voler/partner fa il lavoro per te                     │
-│    → servizio, per clienti senza team interno           │
-│    → ~3x LTV ma non spinto come default                 │
+│ 3. MANAGED RETAINER (ricorrente, OPZIONALE)              │
+│    Voler/partner fa il lavoro — prezzo da freelance       │
 └──────────────────────────────────────────────────────────┘
 ```
 
 **Decisioni prese (2026-05-20)**:
-- Activation: **bundled** (setup + primi mesi crediti in un pacchetto unico) — non setup fee separato
-- Managed retainer: **sì ma opzionale/secondario** (offerto, non spinto; focus primario self-serve+crediti)
-- Delivery: **hybrid** (Voler.ai flagship/enterprise, partner certificati per volume)
+- Posizionamento entry: **sotto il costo di un freelance**; alto di gamma come upside, non baseline.
+- Go-to-market: **mix freelance/agenzie (canale) + clienti diretti flagship** (vedi §9).
+- Activation: **bundled** (setup + primi mesi crediti) e **sales-led** (reference pricing → preventivo).
+- Retainer: **sì ma opzionale/secondario**.
+- Scaling agenzie: **usage-based puro** (no cap progetti, no seat per-cliente); white-label = trigger verso Business.
 
 ---
 
@@ -53,258 +69,282 @@ Tre verità che guidano il modello:
 
 ### Principio
 
-Un **wallet crediti a livello Organization**, spendibile su qualsiasi prodotto della suite. Riusa l'infrastruttura crediti esistente di Business Tuner (`OrgCreditPack`, `CreditTransaction`, Stripe) estesa a tutta la suite.
+Un **wallet crediti a livello Organization**, condiviso su tutti i progetti dell'account e spendibile su qualsiasi modulo (BT/CT/ET/WT). Riusa l'infrastruttura crediti esistente di BT (`CreditTransaction`, pack Stripe), **consolidata su Organization** (oggi BT ha crediti per-User: va consolidato, vedi §12).
 
 `★ Distinzione chiave: crediti ≠ feature access.`
-- **Crediti** = quanto consumi (usage). Spesi da azioni AI.
-- **Tier** = cosa puoi fare (feature access). Sblocca capability.
-- Servono ENTRAMBI: un Pro ha più crediti E più feature di uno Starter.
+- **Crediti** = quanto consumi (usage). Spesi dalle azioni AI.
+- **Tier** = cosa puoi fare (feature access). Sblocca capability on/off.
 
 ### Cost mapping (LlmUsage → crediti)
 
-Toolia ha già `LlmUsage` (Fase 0.5) che traccia il costo reale per azione. Pipeline:
+Toolia ha già `LlmUsage` (Fase 0.5) che traccia il costo reale per azione. Formula (allineata a BT):
 
 ```
-Azione → LlmUsage registra costo reale $ → mapping (1 credito = €0.01 costo × markup) → deduct dal wallet
+crediti = ceil( costo_reale_$ × 4 / 0,006 )      ($1 ≈ €1, conservativo)
+         └ markup 4x ┘   └ €0,006 = prezzo credito worst-case ┘
 ```
 
-Markup raccomandato: **3x** sul costo sottostante (copre infra, margine, R&D). Da calibrare con i pilot.
+> I numeri vanno in **config (env/DB), non hardcoded**: i prezzi dei modelli cambiano (vedi modelli-ai-reference).
 
-### Costo crediti per azione (markup 3x, 1 credito = €0.01)
+### Costo crediti per azione — scala illustrativa (da calibrare con pilot)
 
-| Azione | Costo reale | Crediti |
+Calcolati con la formula sopra sui modelli di maggio 2026. Per le azioni BT testuali la baseline calibrata esiste già nel codice (`creditCosts.ts`: interview 8–15, copilot 20–35).
+
+| Azione | Costo reale ~ | Crediti ~ |
 |---|---|---|
-| BT — visibility scan | ~$0.20 | ~60 |
-| BT — interview session (per conversation) | ~$0.10 | ~30 |
-| BT — strategy tip generation | ~$0.05 | ~15 |
-| CT — estrazione KB da fonte | ~$0.03 | ~9 |
-| CT — semantic base POI/topic | ~$0.08 | ~24 |
-| CT — content artifact testo (Sonnet 4.6) | ~$0.06 | ~18 |
-| CT — articolo blog longform (Opus 4.7) | ~$0.25 | ~75 |
-| CT — brand voice distillation | ~$0.15 | ~45 |
-| CT — image generation (Mode A) | ~$0.05 | ~15 |
-| CT — image preservation edit (Mode B) + check | ~$0.13 | ~39 |
-| ET — scheda audioguida | ~$0.08 | ~24 |
-| ET — TTS audio 90s (ElevenLabs v3) | ~$0.45 | ~135 |
-| ET — delivery pack build | ~$0.02 | ~6 |
-| WT — site optimization loop (per ciclo) | ~$0.30 | ~90 |
+| BT — interview session | $0,05 | 33 |
+| BT — visibility report | (calibrato BT) | 20 |
+| BT — copilot analysis | (calibrato BT) | 35 |
+| CT — estrazione KB da fonte (Haiku) | $0,008 | 6 |
+| CT — content artifact breve (Sonnet 4.6) | $0,02 | 14 |
+| CT — articolo blog longform (Opus 4.7) | $0,30 | 200 |
+| CT — brand voice distillation | $0,15 | 100 |
+| CT — image Mode A (nano-banana-pro) | $0,04 | 27 |
+| CT — image Mode B preservation + check | $0,10 | 67 |
+| ET — scheda audioguida (testo) | $0,03 | 20 |
+| ET — TTS audio 90s (ElevenLabs v3) | $0,30 | 200 |
+| WT — site optimization loop (per ciclo) | $0,12 | 80 |
 
-> ⚠️ Le azioni CT/media/TTS costano molti più crediti delle azioni BT testuali. Questo è **corretto e trasparente**: riflette il costo reale. Un cliente content-heavy consuma più crediti → sale di tier o compra pack. Nessun markup arbitrario "CT premium".
+> ⚠️ Media e TTS costano molti più crediti del testo **perché costano di più davvero** — non è markup arbitrario. Un cliente content/audio-heavy consuma di più → sale di tier o compra pack. Trasparente.
 
-### Credit packs (overflow, no scadenza)
+### Credit packs (overflow, non scadono) — reali BT
 
-| Pack | Crediti | Prezzo |
-|---|---|---|
-| Small | 20.000 | €150 |
-| Medium | 50.000 | €350 |
-| Large | 200.000 | €1.200 |
+| Pack | Crediti | Prezzo | €/1.000 |
+|---|---|---|---|
+| Small | 2.000 | €15 | 7,50 |
+| Medium | 6.000 | €39 | 6,50 |
+| Large | 15.000 | €89 | 5,93 |
+
+> Per la suite media/audio-heavy questi pack si esauriscono in fretta: valutare pack più grandi (es. 50k/100k) in fase pilot. Struttura invariata, scala da tarare.
 
 ---
 
-## 4. Subscription tiers (estendono i tier BT esistenti)
+## 4. Subscription tiers (reali BT, estesi verso l'alto)
 
-I tier ESTENDONO i tier BT attuali (€49/€149/€299), non li contraddicono. Coerenza con gli early adopter BT.
+Prezzi **mensili** veri di BT (annuale-equiv tra parentesi, sconto ~29%).
 
-| Tier | €/mese | Crediti/mese | Feature access |
+| Tier | Crediti/mese | €/mese | Ruolo nel go-to-market |
 |---|---|---|---|
-| **Starter** | 49 | 6.000 | BT base + CT base (3 canali, 1 brand voice, no preservation media) |
-| **Pro** | 149 | 20.000 | + CT avanzato (preservation media, 3 brand voices, tutti i canali) + ET base |
-| **Business** | 299 | 40.000 | + bridge BT↔CT + ET Pro + workflow completo + API limited |
-| **Scale** | 599 | 100.000 | (nuovo) per content/audio-heavy — tutte le feature |
-| **Growth** | 1.499 | 300.000 | (nuovo) high volume + multi-tenant (agency) |
-| **Enterprise** | 4.000+ | fair-use unlimited | white-label completo + SLA 99.5% + AM dedicato + AI Act suite |
+| Free | 500 | €0 | trial / lead capture |
+| **Partner** ⭐ | 10.000 | €29 (€0 con 3+ clienti) | **canale** freelance/agenzie |
+| Starter | 6.000 | €69 (€49) | entry diretto |
+| **Pro** ⭐ | 20.000 | €199 (€149) | flagship diretto + agenzia con progetti-cliente |
+| Business | 40.000 | €399 (€299) | strutturati + white-label + API |
+| Scale *(nuovo)* | ~100.000 | ~€699 | content/audio-heavy |
+| Enterprise | fair-use unlimited | €999+ | luxury / enti grandi |
 
-> **Recalibrazione necessaria**: i tier BT attuali (6k-40k) sono tarati su azioni BT economiche. Le azioni CT/media costano molto di più. Un cliente CT-heavy esaurisce 40k crediti in fretta → i tier Scale/Growth coprono questo. I numeri esatti (crediti per tier, prezzi) vanno validati con i pilot — la STRUTTURA è quella giusta.
+**Tutti sotto il costo di un freelance.** I due motori principali: **Partner** (€29, canale) e **Pro** (€199, diretto/agenzia).
+
+> **Recalibrazione crediti/tier**: i budget crediti BT (6k–40k) sono tarati su azioni BT economiche. Le azioni CT/media/TTS costano molto di più → il tier **Scale** copre l'uso pesante. I budget esatti vanno tarati sul consumo CT reale nei pilot; la **struttura** è quella giusta.
 
 ### Enterprise = crediti unlimited (fair use)
 
-I clienti enterprise/luxury preferiscono "tutto incluso flat" (no metering anxiety). Il tier Enterprise offre **crediti fair-use unlimited** — esperienza premium senza ansia da consumo. Crediti usage-based per Starter→Growth, flat per Enterprise.
+Clienti enterprise/luxury preferiscono "tutto incluso flat" (no metering anxiety). Usage-based per Free→Scale, **flat fair-use** per Enterprise.
 
 ---
 
-## 5. Activation packages (bundled, una tantum)
+## 5. Account model: Organization / Project / Moduli
 
-Setup skilled + onboarding + primi mesi crediti in un unico prezzo "activation". Riduce friction commerciale (un prezzo per partire) e blenda service+product revenue.
+Il modello che regge sia il diretto sia il canale (risolve anche il nodo "dual credit model"):
 
-Ogni package include: setup gestito + onboarding training + primi 2-3 mesi di crediti del tier scelto.
+```
+Organization (= l'account che paga: agenzia, azienda, o freelance)
+  ├── Tier/abbonamento        → feature access + crediti mensili
+  ├── Wallet crediti          → CONDIVISO fra tutti i progetti
+  └── Project (= un cliente, o un brand/sito)
+        ├── purchasedModules: [business_tuner, content_tuner, experience_tuner, web_tuner]
+        └── Bridge BT↔CT       → opera DENTRO il progetto (isolamento fra clienti)
+```
 
-| Prodotto attivato | Cosa include il setup | Activation S | Activation M | Activation L |
-|---|---|---|---|---|
-| **BT** | Config monitoring + interview bots + baseline strategia + 2 mesi crediti | €2.500 | €4.500 | €8.000 |
-| **CT** ⭐ | KB + lenti editoriali + tension map + brand voice + 3 mesi crediti (il più editoriale) | €5.000 | €9.000 | €16.000 |
-| **ET** | Spatial graph + POI + narratori + audioguide content + 2 mesi crediti | €4.000 | €7.500 | €13.000 |
-| **WT** | Design + build sito + content migration + SEO + deploy | €4.000 (template) | €10.000 | €25.000+ (bespoke) |
+**Regole**:
+- **Tier e wallet sono a livello Organization** — un'agenzia su Pro ha 20k crediti condivisi fra tutti i suoi progetti-cliente.
+- **I moduli sono per-Project** — ogni cliente attiva solo ciò che serve.
+- **Progetti illimitati** in tutti i tier a pagamento (come BT: `maxProjects: -1`).
+- **Bridge per-Project**: collega BT e CT *dello stesso progetto*. Conseguenza: **isolamento dei dati fra clienti** di un'agenzia (cliente A mai mischiato a cliente B). Un'agenzia con 15 clienti = 1 Org, 15 progetti, 15 bridge indipendenti.
 
-**S/M/L = complessità del progetto** (es. CT: S = piccola KB ~30 fatti / M = media ~100 / L = grande ~300+ con multi-lingua).
+---
+
+## 6. Activation packages (sales-led, reference pricing)
+
+Setup skilled + onboarding + primi mesi crediti, in un prezzo "activation". **Sempre via interlocuzione commerciale** (preventivo), non checkout self-serve. Leggera per l'entry, ricca solo in alto.
+
+| Livello | Per chi | Cosa include | Range |
+|---|---|---|---|
+| **Guided self-setup** | entry / case study | onboarding assistito, KB templata, 1 brand voice | €0–1.500 (o gratis vs impegno annuale) |
+| **Light** | museo piccolo/medio | KB ~30 fatti + lenti base + tension map + 1 voice + 2 mesi crediti | €1.500–4.000 |
+| **Standard** | brand strutturato | KB ~100 fatti + lenti complete + brand voice raffinata + 3 mesi crediti | €4.000–8.000 |
+| **Deep** | **solo** luxury/enti grandi | KB ~300+ multi-lingua + brand voice avanzata + 3 mesi crediti | €8.000–16.000 |
+
+Per modulo:
+- **BT activation**: config monitoring + interview bot + baseline strategia → €1.5–6k
+- **CT activation**: la più editoriale (KB + lenti + tension + brand voice) → range tabella sopra
+- **ET activation**: spatial graph + POI + narratori + audioguide content → €2–8k
+- **WT**: design + build sito + migration + SEO → €4–25k **bespoke** (puro sales-led)
 
 `★ Insight ─────────────────────────────────────`
-**CT ha l'activation più alto della suite** (più di BT), perché costruire una KB editoriale con lenti+tension+brand voice è il lavoro più skilled. Questo CORREGGE l'errore precedente: non "CT è SaaS leggero a €499", ma "CT richiede l'onboarding più profondo, fatturato come activation, poi usage via crediti coerenti con BT". La complessità sta nel setup, non in un prezzo prodotto arbitrario.
+La complessità sta nel **setup**, non in un prezzo-prodotto arbitrario. Ma per vincere l'entry il setup dev'essere **leggero e templato** (€1.5–4k o guided self-setup), non un progetto. Il setup ricco (€16k) esiste, ma è l'eccezione luxury — non la porta d'ingresso.
 `─────────────────────────────────────────────────`
 
 ---
 
-## 6. Managed retainer (opzionale, secondario)
+## 7. Managed retainer (opzionale — la leva done-for-you)
 
-Per clienti senza team interno (la maggioranza heritage/premium). Voler.ai o partner certificato FA il lavoro ricorrente.
+Per clienti senza team interno. Prezzato **a livello freelance**, così è una vera alternativa.
 
 | Retainer | €/mese | Cosa include |
 |---|---|---|
-| Light | 1.000 | ~10 contenuti/mese gestiti + review |
-| Standard | 2.500 | ~20-30 contenuti/mese + calendario + ottimizzazione |
-| Full | 5.000+ | Produzione completa multi-canale + sito + audioguide management |
+| Light | 500–1.000 | ~10 contenuti/mese gestiti + review (compete col freelance junior) |
+| Standard | 1.500–2.500 | ~20-30 contenuti/mese + calendario + ottimizzazione |
+| Full | 5.000+ | produzione completa multi-canale + sito + audioguide management |
 
-I crediti consumati dal lavoro retainer sono fatturati a parte (o inclusi nel retainer a seconda dell'accordo). Il retainer è **servizio**, i crediti sono **prodotto**.
-
-**Posizionamento**: offerto ma non spinto. Il default commerciale è self-serve (activation + crediti); il retainer è per chi esplicitamente non vuole/può gestire in casa.
+I crediti consumati dal lavoro retainer sono inclusi o fatturati a parte secondo accordo. Il retainer è **servizio**; i crediti sono **prodotto**. Offerto, non spinto.
 
 ---
 
-## 7. Feature gating matrix
+## 8. Feature gating matrix (on/off + livello — nessun cap di quantità)
 
-Crediti = consumo. Tier = accesso. Questa matrice definisce cosa sblocca ogni tier:
+Riusa la struttura `PlanFeatures` di BT (boolean / `base`|`full`). **Quanti canali, brand voices, progetti usi NON è limitato** — lo regola il consumo crediti.
 
-| Feature | Starter | Pro | Business | Scale | Growth | Enterprise |
-|---|---|---|---|---|---|---|
-| BT monitoring | ✅ base | ✅ | ✅ | ✅ | ✅ | ✅ |
-| BT interview/training/chatbot | ✅ base | ✅ | ✅ | ✅ | ✅ | ✅ |
-| CT content (canali) | 3 | tutti | tutti | tutti | tutti | tutti |
-| CT brand voices | 1 | 3 | 3 | 5 | 10 | unlimited |
-| CT preservation media (Mode B) | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| CT style transfer (Mode C) | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| ET audioguide | ❌ | ✅ base | ✅ Pro | ✅ | ✅ | ✅ + nativa Expo |
-| WT website | ❌ | ❌ | ✅ template | ✅ | ✅ | ✅ bespoke |
-| Bridge BT↔CT | ❌ | ❌ | ✅ | ✅ | ✅ | ✅ |
-| API access | ❌ | ❌ | limited | ✅ | ✅ | full |
-| White-label | ❌ | ❌ | ❌ | ❌ | parziale | ✅ completo |
-| Multi-tenant (agency) | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
-| SLA | — | — | — | — | — | 99.5% |
+| Feature | Free | Partner | Starter | Pro | Business | Scale | Enterprise |
+|---|---|---|---|---|---|---|---|
+| BT interview/training/chatbot | base | full | full | full | full | full | full |
+| BT monitoring (visibility/site/tips/copilot) | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| CT content | ❌ | full | base | full | full | full | full |
+| CT preservation media (Mode B) | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| CT style transfer (Mode C) | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ |
+| ET audioguide | ❌ | ✅ base | ❌ | ✅ base | ✅ Pro | ✅ | ✅ + nativa Expo |
+| WT website | ❌ | ❌ | ❌ | ❌ | ✅ template | ✅ | ✅ bespoke |
+| **Bridge BT↔CT** | **sempre attivo con 2+ moduli — NON gated** |
+| API access | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ | full |
+| White-label | ❌ | con 10+ clienti | ❌ | ❌ | ✅ | ✅ | ✅ |
+| Multi-client dashboard | ❌ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Progetti | 1 | ∞ | ∞ | ∞ | ∞ | ∞ | ∞ |
+| SLA | — | — | — | — | — | — | 99,5% |
 
----
-
-## 8. Delivery model (hybrid)
-
-```
-SETUP/ACTIVATION delivery:
-├── Voler.ai team    → flagship, enterprise, bespoke complessi, primi pilot
-└── Partner certificati → SMB, progetti standard, volume
-    (estende il partner program BT esistente)
-
-Voler.ai prende:
-- Activation revenue (diretta o wholesale ai partner)
-- Crediti ricorrenti (sempre, indipendente da chi fa setup)
-- Eventuale referral/margin sui partner-delivered setup
-```
-
-Modello tipo HubSpot/Shopify: la piattaforma scala via partner ecosystem, Voler.ai mantiene il prodotto + i clienti enterprise diretti.
+**API access** = accesso programmatico alle funzioni della suite (es. far generare un contenuto dal gestionale del cliente, o estrarre dati). Gated su Business+ (come in BT). Per il target heritage serve a pochi (agenzie/enterprise).
 
 ---
 
-## 9. Esempi cliente completi
+## 9. Go-to-market: mix freelance + diretto
 
-### Museo medio (managed, suite completa)
+Due motori in parallelo dall'inizio. Tre personaggi, mappati su Organization/Project (§5):
+
+| Personaggio | Come compra | Note |
+|---|---|---|
+| **Agenzia/freelance strutturato** | account proprio su **Pro** (→ Business/Scale crescendo), **1 progetto per cliente** | motore principale di volume; fa lui il setup → costo di delivery basso per Voler; scaling **usage-based puro** (no cap progetti); passa a **Business** quando vuole **white-label** |
+| **Freelance poco strutturato** | si iscrive **Partner**, fa aprire un account Pro/Business a ogni cliente | più raro; Partner = €29 (€0 con 3+ clienti), dashboard multi-cliente, commissione |
+| **Azienda con marketing team** | account proprio Pro/Business, **via intermediazione Voler o partner** | diretto flagship; case study |
+
+**Delivery hybrid**: Voler.ai gestisce flagship/enterprise/bespoke + primi pilot; partner certificati coprono SMB e volume (estende il partner program BT). Voler incassa sempre activation + crediti ricorrenti, indipendentemente da chi fa il setup.
+
+---
+
+## 10. Self-serve (Stripe) vs sales-led (preventivo)
+
+Distinzione netta — replica la logica BT (`PURCHASABLE_PLANS` self-serve, Enterprise sales-led):
+
+| Acquistabile online (Stripe checkout) | Solo trattativa (reference pricing → preventivo) |
+|---|---|
+| Abbonamenti Free→Business + Partner | **Activation packages** |
+| Credit packs (overflow) | **Managed retainer** |
+| | **Web Tuner** (bespoke) |
+| | **Enterprise** + (probabilmente) **Scale** |
+
+---
+
+## 11. Esempi cliente (realistici)
+
+### Agenzia digital strutturata (motore principale)
 ```
-ACTIVATION (una tantum):
-  CT Activation M:  €9.000   (KB + lenti + tension + brand voice + 3 mesi crediti)
-  ET Activation M:  €7.500   (audioguide + 2 mesi crediti)
-  Totale:          €16.500
-
-RICORRENTE (mensile):
-  Tier Scale:       €599    (100k crediti)
-  Retainer Standard: €2.500 (Voler produce 20-30 contenuti/mese)
-  Totale:          €3.099/mese
-
-LTV 24 mesi: €16.500 + (€3.099 × 24) = ~€90.876
-```
-
-### Brand luxury (self-serve, solo content)
-```
-ACTIVATION:
-  CT Activation L:  €16.000  (KB ricca multi-lingua + brand voice raffinata)
-
-RICORRENTE:
-  Tier Growth:      €1.499   (300k crediti, team interno usa la piattaforma)
-
-LTV 24 mesi: €16.000 + (€1.499 × 24) = ~€52.000
-```
-
-### Cantina (self-serve, suite, team interno)
-```
-ACTIVATION:
-  CT Activation M:  €9.000
-  ET Activation S:  €4.000   (audioguida visita degustazione semplice)
-  Totale:          €13.000
-
-RICORRENTE:
-  Tier Pro:         €149     (20k crediti — uso moderato)
-  + credit pack occasionale quando serve
-
-LTV 24 mesi: €13.000 + (€149 × 24) + pack ≈ ~€18.500
+Account: Pro €199/mese (20k crediti condivisi), 8 progetti-cliente
+Setup: lo fa l'agenzia (Voler costo ~0)
+Crescita: arriva a 15 clienti → consumo sale → Business €399 (white-label) o pack
+Ricavo Voler: €199-399/mese + pack occasionali, delivery a costo zero
+→ scala col canale, non con le ore di Voler
 ```
 
-### Agency (5 clienti, multi-tenant)
+### Museo medio diretto (flagship / case study)
 ```
-ACTIVATION:
-  CT Activation M × 5: €45.000 (o scontato volume)
+ACTIVATION: Light €2.500 (KB ~30 fatti + brand voice + 2 mesi crediti)
+RICORRENTE: Pro €199/mese (CT + ET base)
+LTV 24 mesi: €2.500 + (€199 × 24) ≈ €7.276
+→ sostenibile per un museo medio; sotto il costo di un freelance
+```
 
-RICORRENTE:
-  Tier Growth:      €1.499 (300k crediti condivisi sui 5 clienti)
-  o Enterprise:     €4.000 (unlimited multi-tenant)
+### Brand small senza team — done-for-you
+```
+Retainer Light €800/mese all-in (lavoro + crediti inclusi)
+Activation: guided self-setup ~€1.000
+→ sostituisce direttamente il freelance digital
+LTV 24 mesi: €1.000 + (€800 × 24) ≈ €20.200
+```
 
-LTV alta + l'agency diventa partner certificato (fa setup per altri)
+### Luxury / ente grande (alto di gamma, eccezione)
+```
+ACTIVATION: Deep €12.000–16.000 (KB ricca multi-lingua)
+RICORRENTE: Scale €699 o Enterprise €999+ (team interno usa la piattaforma)
+LTV 24 mesi: ~€28.000–40.000
+→ esiste, ma NON è la porta d'ingresso
 ```
 
 ---
 
-## 10. Prerequisiti tecnici
+## 12. Prerequisiti tecnici
 
-1. **Consolidare dual credit model BT**: l'audit ha rilevato che sia `User` che `Organization` hanno campi crediti (vestigia migrazione). Consolidare su **Organization-only** prima di estendere alla suite. ~2-3 giorni durante refactor monorepo Stadio 2.
+1. **Consolidare crediti su Organization**: BT ha crediti per-`User` (`plans.ts`: "piani per utente"). Il modello suite richiede wallet a livello **Organization** condiviso fra progetti. Consolidare prima di estendere. ~2-3 giorni durante refactor monorepo Stadio 2.
 
-2. **`@voler/billing` package**: estrae il credit system di BT in package condiviso. Integra con `LlmUsage` (Toolia) per cost mapping. Aggiunge feature gating per tier.
+2. **Project come container multi-cliente**: confermare `purchasedModules` per-Project + `maxProjects: -1`. Il tier/feature gating è Org-level, i moduli sono Project-level.
 
-3. **Cost mapping config**: la tabella crediti-per-azione e il markup devono essere in config (env/DB), NON hardcoded. I prezzi dei modelli cambiano (vedi modelli-ai-reference).
+3. **Bridge per-Project con isolamento**: il bridge BT↔CT opera dentro il singolo progetto; garantire che i dati non escano dal progetto (privacy fra clienti di un'agenzia).
 
-4. **Stripe products**: ristrutturare i prodotti Stripe BT per i nuovi tier + activation packages + credit packs + retainer.
+4. **`@voler/billing` package**: estrae il credit system BT, integra `LlmUsage` (Toolia) per cost mapping, aggiunge feature gating per tier. Cost mapping in **config** (markup 4x, €0,006/credito), non hardcoded.
 
----
-
-## 11. Open questions (da validare con pilot)
-
-1. **Markup esatto**: 3x è ipotesi. Validare margine reale con dati di consumo pilot.
-2. **Crediti per tier**: i numeri (6k/20k/40k/100k/300k) vanno tarati su consumo CT/media reale.
-3. **Activation S/M/L thresholds**: cosa definisce S vs M vs L per ogni prodotto (numero fatti KB? POI? pagine sito?).
-4. **Quanti mesi di crediti nell'activation bundle**: 2? 3? Impatta il framing "activation include onboarding".
-5. **Retainer pricing**: €1k-5k è ipotesi, dipende da quanto lavoro si delega.
-6. **Partner economics**: che % / wholesale rate per i partner che fanno setup?
-7. **Annual discount**: BT ha -29% annuale. Applicarlo a tier + activation?
-8. **Credit rollover**: i crediti mensili non usati si accumulano o scadono? (BT pack: no scadenza; monthly: TBD)
-9. **Downgrade/overage behaviour**: cosa succede quando i crediti finiscono a metà mese? Hard stop o auto-pack?
-10. **Enterprise "unlimited" fair-use cap**: dove sta il limite del "fair use" per evitare abuse?
+5. **Stripe products**: ristrutturare i prodotti BT per i nuovi tier (Scale) + credit packs; activation/retainer/WT restano fuori da Stripe self-serve (sales-led, fatturazione manuale o checkout custom).
 
 ---
 
-## 12. Sintesi modello
+## 13. Open questions (da validare con pilot)
+
+1. **Budget crediti per tier**: tarare 6k/20k/40k/100k sul consumo CT/media reale (le azioni media costano molto più di BT testuale).
+2. **Pack più grandi**: servono pack 50k/100k per content/audio-heavy?
+3. **Activation S/M/L thresholds**: cosa definisce Light/Standard/Deep (n. fatti KB? POI? lingue?).
+4. **Mesi di crediti nell'activation**: 2? 3?
+5. **Scale: self-serve o sales-led?** (€699, content-heavy).
+6. **Markup 4x**: validare margine reale con dati di consumo pilot.
+7. **Partner economics**: commissione/wholesale per chi fa setup? Estende il partner program BT.
+8. **Credit rollover**: i crediti mensili non usati scadono (BT: sì, mensili si resettano; pack no). Confermare per la suite.
+9. **Overage a metà mese**: hard stop o auto-pack? (BT: warning a 70/85/95%, blocco a 100% salvo pack disponibili).
+10. **Enterprise "unlimited" fair-use cap**: dove sta il limite anti-abuse?
+11. **Retainer vs crediti**: i crediti del lavoro retainer inclusi o a parte?
+
+---
+
+## 14. Sintesi modello
 
 ```
 RICAVI VOLER.AI:
 
-1. ACTIVATION (una tantum, bundled setup + onboarding + primi mesi crediti)
-   BT €2.5-8k | CT €5-16k | ET €4-13k | WT €4-25k
+1. ACTIVATION (una tantum, sales-led, bundled setup + primi mesi crediti)
+   Leggera entry €1.5-4k | Standard €4-8k | Deep €8-16k (solo luxury) | WT €4-25k
 
-2. CREDITI SUBSCRIPTION (ricorrente, wallet unificato)
-   Starter €49 → Enterprise €4.000+ (estende tier BT)
+2. CREDITI SUBSCRIPTION (ricorrente, self-serve Stripe, wallet Org unificato)
+   Partner €29 → Pro €199 → Business €399 → Scale €699 → Enterprise €999+
    + credit packs overflow
 
-3. MANAGED RETAINER (ricorrente opzionale)
-   €1-5k/mese per clienti senza team interno
+3. MANAGED RETAINER (ricorrente opzionale, prezzo da freelance)
+   €500-1.000 (Light) → €5.000+ (Full)
 
-DELIVERY: hybrid (Voler flagship/enterprise + partner volume)
-GATING: tier sblocca feature, crediti misurano consumo
-COST MAPPING: LlmUsage → crediti (markup 3x configurable)
+CREDITI: 1 ≈ €0,006 | margine 4x | costo-azione = ceil(costo$ × 4 / 0,006)
+ACCOUNT: Organization (tier + wallet) → Project (cliente, moduli) → Bridge per-progetto
+GATING: on/off + livello, nessun cap di quantità; bridge sempre attivo con 2+ moduli
+GO-TO-MARKET: mix freelance/agenzie (canale) + diretto flagship
+DELIVERY: hybrid (Voler flagship + partner volume)
 ```
 
 **Principi chiave**:
-- Tech-enabled service (setup skilled + usage prodottizzato)
-- Crediti unificati (no disproporzione CT vs BT — un wallet coerente)
-- CT activation più alto (più editoriale) ma usage coerente con BT
-- Margine protetto da usage-based mapping
-- Scala via partner ecosystem
+- Atterraggio leggero: entry sotto il costo di un freelance, alto di gamma come upside.
+- Crediti unificati ancorati ai numeri reali BT (€0,006, 4x).
+- Niente cap di quantità: i crediti sono il metro, i tier sbloccano feature.
+- Agenzia = 1 account Pro + N progetti-cliente (usage-based, white-label → Business).
+- Bridge per-progetto = integrazione + isolamento dati fra clienti.
+- Margine protetto da usage-based mapping; scala via canale partner.

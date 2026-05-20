@@ -153,30 +153,32 @@ Voler.ai diventa una **suite di prodotti business** sotto un brand ombrello. Tre
 
 > **Documento di dettaglio:** [`2026-05-20-pricing-packaging.md`](./2026-05-20-pricing-packaging.md) è la fonte di verità su pricing, packaging, crediti e setup. Questa sezione ne riassume solo i principi. **In caso di conflitto vince il pricing doc.**
 
-### 3.1 Tre principi che cambiano l'impostazione precedente
+### 3.1 Principi (verificati sui numeri reali di BT)
 
-Il modello a tier separati per prodotto (BT €49-299 / CT €499-5000 / ET addon) è **superato**. Tre decisioni lo sostituiscono:
+Il modello a tier separati per prodotto (BT €49-299 / CT €499-5000 / ET addon) è **superato**. Quattro principi lo sostituiscono:
 
-1. **Tech-enabled service, non pure SaaS.** I clienti non si auto-onboardano. La creazione della KB (sia per BT che per CT) richiede lavoro editoriale qualificato che non è prodottizzabile in self-service. Quindi vendiamo: **setup gestito + abbonamento ricorrente + retainer opzionale**.
+1. **Tech-enabled service con atterraggio leggero.** Il setup è skilled work, ma per l'entry dev'essere **leggero ed economico** (activation €1.5–4k o guided self-setup), non un progetto da €16k. Àncora di prezzo: **costare meno di un freelance/agenzia digital** (~€500–1.500/mese). Si atterra leggeri e si espande col consumo.
 
-2. **Crediti unificati su tutta la suite.** Un solo wallet a livello di Organization. I crediti si spendono su qualsiasi prodotto (BT, CT, ET, WT). Il costo in crediti di ogni azione è mappato sul costo reale in $ del modello AI sottostante (`LlmUsage` × markup ~3x, 1 credito = €0,01). Questo elimina la sproporzione "CT costa 10x BT": un'azione CT costa più crediti perché costa più $ reali, non per markup arbitrario.
+2. **Crediti unificati ancorati ai numeri reali BT.** Un wallet a livello Organization, condiviso fra tutti i progetti, spendibile su BT/CT/ET/WT. Costo-azione mappato sul costo reale del modello AI: `crediti = ceil(costo_$ × 4 / 0,006)` — **1 credito ≈ €0,006**, **margine 4x** (valori reali da `creditPacks.ts`/`creditCosts.ts` di BT, non €0,01/3x come ipotizzato in v1).
 
-3. **Il tier sblocca feature, i crediti misurano il consumo.** L'abbonamento determina *cosa puoi fare* (feature gating); i crediti determinano *quanto puoi farne*. Sono due assi indipendenti.
+3. **Il tier sblocca feature, i crediti misurano il consumo.** Gating **on/off + livello** (come BT: "feature illimitate quando disponibili, consumano crediti"). **Nessun cap di quantità** (canali, brand voices, progetti): lo regola il consumo crediti.
+
+4. **Account = Organization, cliente = Project.** Tier e wallet sono Org-level; i moduli (`purchasedModules`) sono per-Project; il **bridge BT↔CT è sempre attivo** con 2+ moduli e opera **dentro il progetto** (isolamento dati fra clienti di un'agenzia). Un'agenzia = 1 account Pro + N progetti-cliente (scaling usage-based, white-label → Business).
 
 ### 3.2 Le tre layer di ricavo (sintesi)
 
-| Layer | Cos'è | Quando |
+| Layer | Cos'è | Canale |
 |---|---|---|
-| **Activation bundle** | Setup gestito una tantum (KB, brand voice, configurazione, primi contenuti). Pacchetti S/M/L per prodotto. | All'onboarding |
-| **Credits subscription** | Abbonamento mensile = tier (feature) + crediti inclusi. Starter €49/6k → Enterprise €4000+/unlimited. | Ricorrente |
-| **Managed retainer** (opzionale) | Voler gestisce la produzione continua per conto del cliente. €1-5k/mese. | Secondario, on demand |
+| **Activation** | Setup skilled + onboarding + primi mesi crediti. Leggera entry €1.5–4k → Deep €8–16k (solo luxury). | Sales-led (preventivo) |
+| **Credits subscription** | Tier (feature) + crediti. Partner €29 → Pro €199 → Business €399 → Scale €699 → Enterprise €999+. | Self-serve (Stripe) |
+| **Managed retainer** (opzionale) | Voler/partner produce per il cliente. €500–1.000 (Light) → €5.000+ (Full). | Sales-led |
 
-### 3.3 Delivery model: hybrid
+### 3.3 Delivery + go-to-market
 
-- **Voler flagship**: clienti gestiti direttamente da Voler.ai (case study, prestigio, marginalità alta via retainer).
-- **Partner/volume**: agenzie e partner che usano la suite per i propri clienti (volume, crediti, self-managed dopo setup).
+- **Mix freelance/agenzie (canale) + diretto flagship**: l'agenzia strutturata compra Pro e crea un progetto per cliente; il freelance poco strutturato va su Partner; l'azienda con team interno compra diretto via intermediazione.
+- **Hybrid delivery**: Voler.ai flagship/enterprise + partner certificati per volume. Voler incassa sempre activation + crediti, indipendentemente da chi fa il setup.
 
-Vedi pricing doc per: tabella costo-crediti per azione, tier completi, activation packages dettagliati per BT/CT/ET/WT, feature gating matrix, esempi cliente con LTV, e le open question ancora aperte.
+Vedi pricing doc per: formula e tabella costo-crediti, tier completi, account model Org/Project, activation per modulo, feature gating matrix, esempi cliente realistici, self-serve vs sales-led, e le open question.
 
 ---
 
